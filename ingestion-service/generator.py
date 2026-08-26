@@ -1,12 +1,13 @@
 import asyncio
 import random
 import sys
+import os
 from datetime import datetime, timezone
 import asyncpg
 from redis.asyncio import Redis
 
-DB_URL = "postgresql://postgres:postgrespassword@localhost:5433/game_monitor"
-REDIS_URL = "redis://localhost:6379"
+DB_URL = os.getenv("DB_URL", "postgresql://postgres:postgrespassword@localhost:5433/game_monitor")
+REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379")
 
 SERVERS = [
     {"id": "185.25.180.1:27015", "name": "Vienna Valve Server", "region": "Vienna", "max_players": 24},

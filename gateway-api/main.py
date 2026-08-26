@@ -1,8 +1,8 @@
 from fastapi import FastAPI, Query, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.encoders import jsonable_encoder
 import asyncpg
 import asyncio
-import json
 import os
 app = FastAPI(
     title="CS2 Monitor Gateway API",
@@ -20,6 +20,29 @@ app.add_middleware(
 DB_URL = os.getenv("DB_URL", "postgresql://postgres:postgrespassword@localhost:5433/game_monitor")
 db_pool = None
 
+LATEST_SERVERS_QUERY = """
+    SELECT
+        ms.server_id,
+        ms.server_name,
+        ms.region,
+        ms.status,
+        ms.last_online_at,
+        ms.last_offline_at,
+        lm.player_count,
+        lm.max_players,
+        lm.ping_ms::double precision AS ping_ms,
+        lm.time AS last_metric_at
+    FROM monitored_servers ms
+    LEFT JOIN LATERAL (
+        SELECT time, player_count, max_players, ping_ms
+        FROM server_metrics
+        WHERE server_id = ms.server_id
+        ORDER BY time DESC
+        LIMIT 1
+    ) lm ON TRUE
+    ORDER BY ms.server_name;
+"""
+
 @app.on_event("startup")
 async def startup():
     global db_pool
@@ -34,11 +57,7 @@ async def shutdown():
 @app.get("/api/v1/servers")
 async def get_servers():
     async with db_pool.acquire() as conn:
-        rows = await conn.fetch("""
-            SELECT server_id, server_name, region, status, last_online_at, last_offline_at
-            FROM monitored_servers
-            ORDER BY server_name;
-        """)
+        rows = await conn.fetch(LATEST_SERVERS_QUERY)
         return [dict(r) for r in rows]
 
 # 2. Server metriklari tarixi
@@ -90,14 +109,14 @@ async def websocket_endpoint(websocket: WebSocket):
     try:
         while True:
             async with db_pool.acquire() as conn:
-                servers = await conn.fetch("SELECT * FROM monitored_servers ORDER BY server_name;")
+                servers = await conn.fetch(LATEST_SERVERS_QUERY)
                 events = await conn.fetch("SELECT * FROM server_events ORDER BY time DESC LIMIT 5;")
                 
                 payload = {
                     "servers": [dict(s) for s in servers],
                     "events": [dict(e) for e in events]
                 }
-                await websocket.send_text(json.dumps(payload, default=str))
+                await websocket.send_json(jsonable_encoder(payload))
             await asyncio.sleep(3)
     except WebSocketDisconnect:
         pass

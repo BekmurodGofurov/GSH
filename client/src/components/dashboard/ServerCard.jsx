@@ -22,9 +22,11 @@ export function ServerCard({
   onInspect,
 }) {
   const isOnline = (server.status || '').toUpperCase() === 'ONLINE';
-  const players = server.player_count || (isOnline ? 18 : 0);
-  const maxPlayers = server.max_players || 24;
-  const loadPercentage = Math.round((players / maxPlayers) * 100);
+  const playersRaw = Number(server.player_count);
+  const maxPlayersRaw = Number(server.max_players);
+  const players = Number.isFinite(playersRaw) && playersRaw >= 0 ? playersRaw : 0;
+  const maxPlayers = Number.isFinite(maxPlayersRaw) && maxPlayersRaw > 0 ? maxPlayersRaw : 0;
+  const loadPercentage = maxPlayers > 0 ? Math.round((players / maxPlayers) * 100) : 0;
 
   return (
     <Card

@@ -266,19 +266,26 @@ export function useServerData() {
 
   // Calculated Dashboard KPI Stats strictly from real data
   const kpis = useMemo(() => {
+    const toNumber = (value, fallback = 0) => {
+      const n = Number(value);
+      return Number.isFinite(n) ? n : fallback;
+    };
+
     const total = servers.length;
     const online = servers.filter((s) => (s.status || '').toUpperCase() === 'ONLINE').length;
     const offline = total - online;
 
     const onlineServers = servers.filter((s) => (s.status || '').toUpperCase() === 'ONLINE');
-    const validPingServers = onlineServers.filter((s) => typeof s.ping_ms === 'number' && s.ping_ms > 0);
+    const validPingServers = onlineServers
+      .map((s) => toNumber(s.ping_ms, 0))
+      .filter((ping) => ping > 0);
     const avgPing =
       validPingServers.length > 0
-        ? validPingServers.reduce((acc, s) => acc + s.ping_ms, 0) / validPingServers.length
+        ? validPingServers.reduce((acc, ping) => acc + ping, 0) / validPingServers.length
         : 0;
 
-    const totalPlayers = servers.reduce((acc, s) => acc + (s.player_count || 0), 0);
-    const maxCapacity = servers.reduce((acc, s) => acc + (s.max_players || 0), 0);
+    const totalPlayers = servers.reduce((acc, s) => acc + toNumber(s.player_count, 0), 0);
+    const maxCapacity = servers.reduce((acc, s) => acc + toNumber(s.max_players, 0), 0);
 
     let health = total > 0 ? (online / total) * 100 : 0;
     if (avgPing > 80) health = Math.max(0, health - 15);
