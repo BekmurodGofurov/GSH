@@ -1,34 +1,32 @@
--- CS2 metrikalar jadvali
-CREATE TABLE IF NOT EXISTS server_metrics (
-    timestamp TIMESTAMPTZ NOT NULL,
-    server_id VARCHAR(64) NOT NULL,
-    game VARCHAR(16) NOT NULL,
-    region VARCHAR(32) NOT NULL,
-    player_count INT NOT NULL,
-    max_players INT,
-    tick_rate FLOAT,
-    ping_ms FLOAT,
-    map VARCHAR(64)
-);
+CREATE EXTENSION IF NOT EXISTS timescaledb CASCADE;
 
--- TimescaleDB Hypertable ga o'tkazish (vaqt seriyali ma'lumotlarni tezkor so'rash uchun)
-SELECT create_hypertable('server_metrics', 'timestamp', if_not_exists => TRUE);
-
--- Monitoring qilinadigan serverlar ro'yxati
+-- 1-jadval: Serverlar va ularning joriy statusi
 CREATE TABLE IF NOT EXISTS monitored_servers (
     server_id VARCHAR(64) PRIMARY KEY,
-    server_name VARCHAR(128),
+    server_name VARCHAR(128) NOT NULL,
     region VARCHAR(32) NOT NULL,
-    is_active BOOLEAN DEFAULT TRUE,
+    status VARCHAR(16) DEFAULT 'ONLINE',
+    last_online_at TIMESTAMPTZ,
+    last_offline_at TIMESTAMPTZ,
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- AI anomaliyalari va bildirishnomalar tarixi
-CREATE TABLE IF NOT EXISTS anomalies_history (
+-- 2-jadval: Vaqt bo'yicha metrikalar (Hypertable)
+CREATE TABLE IF NOT EXISTS server_metrics (
+    time TIMESTAMPTZ NOT NULL,
+    server_id VARCHAR(64) NOT NULL REFERENCES monitored_servers(server_id),
+    player_count INT NOT NULL,
+    max_players INT NOT NULL,
+    ping_ms NUMERIC(6, 2) NOT NULL
+);
+
+SELECT create_hypertable('server_metrics', 'time', if_not_exists => TRUE);
+
+-- 3-jadval: Server hodisalari va o'chib qolish jurnali (Incidents/Logs)
+CREATE TABLE IF NOT EXISTS server_events (
     id SERIAL PRIMARY KEY,
-    timestamp TIMESTAMPTZ NOT NULL,
-    server_id VARCHAR(64) NOT NULL,
-    anomaly_score FLOAT NOT NULL,
-    root_cause VARCHAR(64) NOT NULL,
-    telegram_sent BOOLEAN DEFAULT FALSE
+    time TIMESTAMPTZ NOT NULL,
+    server_id VARCHAR(64) NOT NULL REFERENCES monitored_servers(server_id),
+    event_type VARCHAR(32) NOT NULL, -- 'CRASH', 'OFFLINE', 'HIGH_PING', 'RECOVERY'
+    message TEXT NOT NULL
 );

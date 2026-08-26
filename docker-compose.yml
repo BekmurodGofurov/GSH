@@ -4,31 +4,39 @@ services:
   timescaledb:
     image: timescale/timescaledb:latest-pg15
     container_name: gsh-timescaledb
-    restart: always
     environment:
-      POSTGRES_DB: game_monitor
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgrespassword
+      POSTGRES_DB: game_monitor
     ports:
-      - "5432:5432"
+      - "5433:5432"
     volumes:
-      - timescaledb_data:/var/lib/postgresql/data
-      - ./init.sql:/docker-entrypoint-initdb.d/init.sql  # Autostart SQL script
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql
 
   redis:
     image: redis:7-alpine
     container_name: gsh-redis
-    restart: always
     ports:
       - "6379:6379"
-    volumes:
-      - redis_data:/data
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
 
-volumes:
-  timescaledb_data:
-  redis_data:
+  gateway-api:
+    build: ./gateway-api
+    container_name: gsh-gateway-api
+    ports:
+      - "8000:8000"
+    environment:
+      DB_URL: "postgresql://postgres:postgrespassword@timescaledb:5432/game_monitor"
+    depends_on:
+      - timescaledb
+      - redis
+
+  ingestion-service:
+    build: ./ingestion-service
+    container_name: gsh-ingestion-service
+    ports:
+      - "8001:8001"
+    environment:
+      DB_URL: "postgresql://postgres:postgrespassword@timescaledb:5432/game_monitor"
+    depends_on:
+      - timescaledb
+      - redis
