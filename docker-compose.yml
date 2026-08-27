@@ -11,13 +11,26 @@ services:
     ports:
       - "5433:5432"
     volumes:
+      - timescale_data:/var/lib/postgresql/data
       - ./init.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d game_monitor"]
+      interval: 3s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
 
   redis:
     image: redis:7-alpine
     container_name: gsh-redis
     ports:
       - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 3s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
 
   gateway-api:
     build: ./gateway-api
@@ -26,9 +39,13 @@ services:
       - "8000:8000"
     environment:
       DB_URL: "postgresql://postgres:postgrespassword@timescaledb:5432/game_monitor"
+      REDIS_URL: "redis://redis:6379"
     depends_on:
-      - timescaledb
-      - redis
+      timescaledb:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
 
   ingestion-service:
     build: ./ingestion-service
@@ -37,6 +54,27 @@ services:
       - "8001:8001"
     environment:
       DB_URL: "postgresql://postgres:postgrespassword@timescaledb:5432/game_monitor"
+      REDIS_URL: "redis://redis:6379"
     depends_on:
-      - timescaledb
-      - redis
+      timescaledb:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  ingestion-generator:
+    build: ./ingestion-service
+    container_name: gsh-ingestion-generator
+    command: ["python", "-u", "generator.py"]
+    environment:
+      DB_URL: "postgresql://postgres:postgrespassword@timescaledb:5432/game_monitor"
+      REDIS_URL: "redis://redis:6379"
+    depends_on:
+      timescaledb:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  timescale_data:

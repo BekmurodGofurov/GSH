@@ -1,9 +1,10 @@
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-import asyncpg
 from typing import Optional
+import asyncpg
 import os
+
 app = FastAPI(
     title="CS2 Ingestion Service",
     version="1.0.0"
@@ -30,7 +31,6 @@ async def shutdown():
     if db_pool:
         await db_pool.close()
 
-# DTO Modellar
 class MetricPayload(BaseModel):
     server_id: str
     player_count: int
@@ -40,13 +40,13 @@ class MetricPayload(BaseModel):
 class EventPayload(BaseModel):
     server_id: str
     event_type: str
+    root_cause: Optional[str] = "NORMAL"
     message: str
 
 @app.get("/health")
 async def health_check():
     return {"status": "ok", "service": "ingestion-service"}
 
-# 1. Metriklarni qabul qilish va bazaga saqlash
 @app.post("/api/v1/ingest/metric")
 async def ingest_metric(data: MetricPayload):
     async with db_pool.acquire() as conn:
@@ -56,12 +56,11 @@ async def ingest_metric(data: MetricPayload):
         """, data.server_id, data.player_count, data.max_players, data.ping_ms)
     return {"status": "metric_inserted"}
 
-# 2. Hodisalarni (CRASH, RECOVERY va h.k.) saqlash
 @app.post("/api/v1/ingest/event")
 async def ingest_event(data: EventPayload):
     async with db_pool.acquire() as conn:
         await conn.execute("""
-            INSERT INTO server_events (time, server_id, event_type, message)
-            VALUES (NOW(), $1, $2, $3);
-        """, data.server_id, data.event_type, data.message)
+            INSERT INTO server_events (time, server_id, event_type, root_cause, message)
+            VALUES (NOW(), $1, $2, $3, $4);
+        """, data.server_id, data.event_type, data.root_cause, data.message)
     return {"status": "event_inserted"}

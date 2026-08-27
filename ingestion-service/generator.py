@@ -10,8 +10,18 @@ DB_URL = os.getenv("DB_URL", "postgresql://postgres:postgrespassword@localhost:5
 REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379")
 
 SERVERS = [
-    {"id": "185.25.180.1:27015", "name": "Vienna Valve Server", "region": "Vienna", "max_players": 24},
-    {"id": "185.25.180.2:27015", "name": "Warsaw Valve Server", "region": "Warsaw", "max_players": 32},
+    # Vienna Datacenter
+    {"id": "185.25.180.1:27015", "name": "Vienna Valve Server #1", "region": "Vienna", "max_players": 24},
+    {"id": "185.25.180.2:27015", "name": "Vienna Valve Server #2", "region": "Vienna", "max_players": 24},
+    {"id": "185.25.180.3:27015", "name": "Vienna Valve Server #3", "region": "Vienna", "max_players": 32},
+    {"id": "185.25.180.4:27015", "name": "Vienna Community Server #1", "region": "Vienna", "max_players": 32},
+    {"id": "185.25.180.5:27015", "name": "Vienna Retake Server #1", "region": "Vienna", "max_players": 16},
+    # Warsaw Datacenter
+    {"id": "155.133.230.1:27015", "name": "Warsaw Valve Server #1", "region": "Warsaw", "max_players": 24},
+    {"id": "155.133.230.2:27015", "name": "Warsaw Valve Server #2", "region": "Warsaw", "max_players": 24},
+    {"id": "155.133.230.3:27015", "name": "Warsaw Valve Server #3", "region": "Warsaw", "max_players": 32},
+    {"id": "155.133.230.4:27015", "name": "Warsaw Community Server #1", "region": "Warsaw", "max_players": 32},
+    {"id": "155.133.230.5:27015", "name": "Warsaw Deathmatch Server", "region": "Warsaw", "max_players": 20},
 ]
 
 async def init_servers(db_pool):
@@ -19,7 +29,7 @@ async def init_servers(db_pool):
         for s in SERVERS:
             await conn.execute("""
                 INSERT INTO monitored_servers (server_id, server_name, region, status, last_online_at)
-                VALUES ($1, $2, $3, 'ONLINE', NOW())
+                VALUES ($1::varchar, $2::varchar, $3::varchar, 'ONLINE', NOW())
                 ON CONFLICT (server_id) DO NOTHING;
             """, s["id"], s["name"], s["region"])
 
@@ -28,71 +38,54 @@ async def start_generator():
     redis = Redis.from_url(REDIS_URL)
 
     await init_servers(db_pool)
-    print("🚀 CS2 Demo Data Generator ishga tushdi (3 ta jadval to'ldirilmoqda)...")
-
-    # Har bir serverning oldingi statusini saqlab turish uchun
-    previous_states = {s["id"]: "ONLINE" for s in SERVERS}
+    print("🚀 CS2 Raw Metrics Generator ishga tushdi (Faqat xom metrikalar yozilmoqda)...")
 
     try:
         while True:
             now = datetime.now(timezone.utc)
-            
+            scenario_roll = random.random()
+
             for s in SERVERS:
                 server_id = s["id"]
+                region = s["region"]
                 max_p = s["max_players"]
 
-                # Tasodifiy simulyatsiya
-                is_offline = random.random() < 0.08  # 8% ehtimollik bilan server crash/offline
-                ping = round(random.uniform(15.0, 40.0) if not random.random() < 0.1 else random.uniform(150.0, 300.0), 2)
-                players = 0 if is_offline else random.randint(10, max_p)
-                current_status = "OFFLINE" if is_offline else "ONLINE"
+                # Normal holat ko'rsatkichlari
+                ping = round(random.uniform(15.0, 35.0), 2)
+                players = random.randint(8, max_p)
+                status = "ONLINE"
+
+                # Xom anomaliyalar simulyatsiyasi (Metrika darajasida)
+                if scenario_roll < 0.04 and region == "Vienna":
+                    ping = round(random.uniform(220.0, 380.0), 2)
+                    players = random.randint(5, max_p)
+
+                elif 0.04 <= scenario_roll < 0.07 and server_id == "155.133.230.1:27015":
+                    ping = round(random.uniform(400.0, 750.0), 2)
+                    players = max(0, players - random.randint(3, 8))
+
+                elif 0.07 <= scenario_roll < 0.10 and server_id in ["185.25.180.2:27015", "155.133.230.3:27015"]:
+                    ping = 0.0
+                    players = 0
+                    status = "OFFLINE"
 
                 async with db_pool.acquire() as conn:
-                    # 1. Metriklarni yozish (server_metrics)
+                    # 1. Faqat xom vaqtli metrikalarni yozish
                     await conn.execute("""
                         INSERT INTO server_metrics (time, server_id, player_count, max_players, ping_ms)
                         VALUES ($1, $2, $3, $4, $5);
                     """, now, server_id, players, max_p, ping)
 
-                    # 2. Server statusini va vaqtlarini yangilash (monitored_servers)
-                    if current_status == 'ONLINE':
-                        await conn.execute("""
-                            UPDATE monitored_servers 
-                            SET status = 'ONLINE', last_online_at = $1 
-                            WHERE server_id = $2;
-                        """, now, server_id)
-                    else:
-                        await conn.execute("""
-                            UPDATE monitored_servers 
-                            SET status = 'OFFLINE', last_offline_at = $1 
-                            WHERE server_id = $2;
-                        """, now, server_id)
+                    # 2. Serverning joriy holatini yangilash
+                    await conn.execute("""
+                        UPDATE monitored_servers 
+                        SET status = $1::varchar, 
+                            last_online_at = CASE WHEN $1::varchar = 'ONLINE' THEN $2::timestamptz ELSE last_online_at END,
+                            last_offline_at = CASE WHEN $1::varchar = 'OFFLINE' THEN $2::timestamptz ELSE last_offline_at END
+                        WHERE server_id = $3::varchar;
+                    """, status, now, server_id)
 
-                    # 3. Hodisalarni yozish (server_events)
-                    # A) Server crash bo'lsa yoki qayta yonsa
-                    if previous_states[server_id] == "ONLINE" and current_status == "OFFLINE":
-                        await conn.execute("""
-                            INSERT INTO server_events (time, server_id, event_type, message)
-                            VALUES ($1, $2, 'CRASH', 'Server javob bermadi va OFFLINE holatga o`tdi');
-                        """, now, server_id)
-                        print(f"⚠️ [EVENT CRASH] {server_id} o'chib qoldi!")
-
-                    elif previous_states[server_id] == "OFFLINE" and current_status == "ONLINE":
-                        await conn.execute("""
-                            INSERT INTO server_events (time, server_id, event_type, message)
-                            VALUES ($1, $2, 'RECOVERY', 'Server qayta ishga tushdi (ONLINE)');
-                        """, now, server_id)
-                        print(f"✅ [EVENT RECOVERY] {server_id} qayta yondi!")
-
-                    # B) High Ping hodisasi
-                    if current_status == "ONLINE" and ping > 200:
-                        await conn.execute("""
-                            INSERT INTO server_events (time, server_id, event_type, message)
-                            VALUES ($1, $2, 'HIGH_PING', $3);
-                        """, now, server_id, f"Yuqori lag aniqlandi: {ping}ms")
-
-                previous_states[server_id] = current_status
-                print(f"[{now.strftime('%H:%M:%S')}] {server_id} ({s['region']}) | Status: {current_status} | Players: {players}/{max_p} | Ping: {ping}ms")
+                print(f"[{now.strftime('%H:%M:%S')}] {server_id} ({region}) | Status: {status} | Players: {players}/{max_p} | Ping: {ping}ms")
 
             await asyncio.sleep(3)
     except asyncio.CancelledError:

@@ -22,11 +22,12 @@ CREATE TABLE IF NOT EXISTS server_metrics (
 
 SELECT create_hypertable('server_metrics', 'time', if_not_exists => TRUE);
 
--- 3-jadval: Server hodisalari va o'chib qolish jurnali (Incidents/Logs)
+-- 3-jadval: Server hodisalari, crash va ML Root Cause jurnali
 CREATE TABLE IF NOT EXISTS server_events (
     id SERIAL PRIMARY KEY,
     time TIMESTAMPTZ NOT NULL,
     server_id VARCHAR(64) NOT NULL REFERENCES monitored_servers(server_id),
     event_type VARCHAR(32) NOT NULL, -- 'CRASH', 'OFFLINE', 'HIGH_PING', 'RECOVERY'
+    root_cause VARCHAR(32) DEFAULT 'NORMAL', -- ML uchun Target Label
     message TEXT NOT NULL
 );
