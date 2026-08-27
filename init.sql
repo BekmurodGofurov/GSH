@@ -19,6 +19,8 @@ CREATE TABLE IF NOT EXISTS server_metrics (
     max_players INT NOT NULL,
     ping_ms NUMERIC(6, 2) NOT NULL
 );
+UPDATE monitored_servers 
+SET status = 'OFFLINE', last_online_at = NULL, last_offline_at = NULL;
 
 SELECT create_hypertable('server_metrics', 'time', if_not_exists => TRUE);
 
