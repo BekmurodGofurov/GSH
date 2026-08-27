@@ -1,12 +1,26 @@
+from contextlib import asynccontextmanager
 from fastapi import FastAPI, Query, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.encoders import jsonable_encoder
 import asyncpg
 import asyncio
 import os
+
+DB_URL = os.getenv("DB_URL", "postgresql://postgres:postgrespassword@localhost:5433/game_monitor")
+db_pool = None
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    global db_pool
+    db_pool = await asyncpg.create_pool(DB_URL)
+    yield
+    if db_pool:
+        await db_pool.close()
+
 app = FastAPI(
     title="CS2 Monitor Gateway API",
-    version="1.0.0"
+    version="1.0.0",
+    lifespan=lifespan
 )
 
 app.add_middleware(
@@ -16,9 +30,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-DB_URL = os.getenv("DB_URL", "postgresql://postgres:postgrespassword@localhost:5433/game_monitor")
-db_pool = None
 
 LATEST_SERVERS_QUERY = """
     SELECT
@@ -43,24 +54,12 @@ LATEST_SERVERS_QUERY = """
     ORDER BY ms.server_name;
 """
 
-@app.on_event("startup")
-async def startup():
-    global db_pool
-    db_pool = await asyncpg.create_pool(DB_URL)
-
-@app.on_event("shutdown")
-async def shutdown():
-    if db_pool:
-        await db_pool.close()
-
-# 1. Barcha serverlar ro'yxati va statusi
 @app.get("/api/v1/servers")
 async def get_servers():
     async with db_pool.acquire() as conn:
         rows = await conn.fetch(LATEST_SERVERS_QUERY)
         return [dict(r) for r in rows]
 
-# 2. Server metriklari tarixi
 @app.get("/api/v1/servers/{server_id:path}/metrics")
 async def get_server_metrics(server_id: str, limit: int = Query(30, ge=5, le=300)):
     async with db_pool.acquire() as conn:
@@ -73,7 +72,6 @@ async def get_server_metrics(server_id: str, limit: int = Query(30, ge=5, le=300
         """, server_id, limit)
         return [dict(r) for r in rows]
 
-# 3. Server hodisalari va Crash loglari
 @app.get("/api/v1/events")
 async def get_events(limit: int = Query(20, ge=1, le=100)):
     async with db_pool.acquire() as conn:
@@ -85,7 +83,6 @@ async def get_events(limit: int = Query(20, ge=1, le=100)):
         """, limit)
         return [dict(r) for r in rows]
 
-# 4. TimescaleDB Agregatsiyasi (Daqiqalik o'rtacha metrikalar)
 @app.get("/api/v1/analytics/ping-buckets")
 async def get_ping_analytics(minutes: int = Query(10, ge=1, le=60)):
     async with db_pool.acquire() as conn:
@@ -102,7 +99,6 @@ async def get_ping_analytics(minutes: int = Query(10, ge=1, le=60)):
         """, minutes)
         return [dict(r) for r in rows]
 
-# 5. Live WebSocket (Frontend uchun real-time stream)
 @app.websocket("/ws/live")
 async def websocket_endpoint(websocket: WebSocket):
     await websocket.accept()
