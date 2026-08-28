@@ -10,9 +10,7 @@ DB_URL = os.getenv("DB_URL") or "postgresql://postgres:postgrespassword@localhos
 db_pool: asyncpg.Pool | None = None
 
 DEFAULT_SERVERS = [
-    # --- Vienna / Central Europe Region ---
-    {"server_id": "54.36.173.60:28029", "server_name": "CS2 5X5 | 5v5 #263 [PL] — CYBERSHOKE.NET", "region": "Vienna"},
-    {"server_id": "54.36.173.60:28035", "server_name": "CS2 CUSTOM MATCHES [PL] — CYBERSHOKE.NET", "region": "Vienna"},
+    # --- Vienna / Central Europe Region (Cybershoke PL) ---
     {"server_id": "54.36.173.60:28015", "server_name": "CS2 DM | FFA #228 [PL] — CYBERSHOKE.NET (20 SLOTS)", "region": "Vienna"},
     {"server_id": "54.36.173.60:28016", "server_name": "CS2 DM | FFA #229 [PL] — CYBERSHOKE.NET (20 SLOTS)", "region": "Vienna"},
     {"server_id": "54.36.173.60:28017", "server_name": "CS2 DM | FFA #230 [PL] — CYBERSHOKE.NET (20 SLOTS)", "region": "Vienna"},
@@ -20,20 +18,17 @@ DEFAULT_SERVERS = [
     {"server_id": "54.36.173.60:28019", "server_name": "CS2 DUELS | 1v1 #234 [PL] — CYBERSHOKE.NET (ARENA MAPS)", "region": "Vienna"},
     {"server_id": "54.36.173.60:28020", "server_name": "CS2 DUELS | 1v1 #235 [PL] — CYBERSHOKE.NET (ARENA MAPS)", "region": "Vienna"},
     {"server_id": "54.36.173.60:28024", "server_name": "CS2 RETAKE #379 [PL] — CYBERSHOKE.NET (9 SLOTS)", "region": "Vienna"},
-    {"server_id": "185.25.180.1:27015", "server_name": "Vienna Valve Server #1", "region": "Vienna"},
-    {"server_id": "185.25.180.2:27015", "server_name": "Vienna Valve Server #2", "region": "Vienna"},
-    {"server_id": "185.25.180.3:27015", "server_name": "Vienna Valve Server #3", "region": "Vienna"},
-    {"server_id": "185.25.180.4:27015", "server_name": "Vienna Community Server #1", "region": "Vienna"},
-    {"server_id": "185.25.180.5:27015", "server_name": "Vienna Retake Server #1", "region": "Vienna"},
+    {"server_id": "54.36.173.60:28029", "server_name": "CS2 5X5 | 5v5 #263 [PL] — CYBERSHOKE.NET", "region": "Vienna"},
+    {"server_id": "54.36.173.60:28035", "server_name": "CS2 CUSTOM MATCHES [PL] — CYBERSHOKE.NET", "region": "Vienna"},
 
-    # --- Warsaw / Poland Region ---
+    # --- Warsaw / Poland Region (Cybershoke UA & uwujka.pl) ---
+    {"server_id": "91.211.118.96:27015", "server_name": "CS2 5X5 | 5v5 #98 [UA] — CYBERSHOKE.NET", "region": "Warsaw"},
     {"server_id": "91.211.118.96:27018", "server_name": "CS2 ARENA | 1v1 #12 [UA] — CYBERSHOKE.NET", "region": "Warsaw"},
+    {"server_id": "91.211.118.96:27022", "server_name": "CS2 CUSTOM MATCHES [UA] — CYBERSHOKE.NET", "region": "Warsaw"},
+    {"server_id": "91.211.118.96:27026", "server_name": "CS2 HSDM | FFA #23 [UA] — CYBERSHOKE.NET", "region": "Warsaw"},
     {"server_id": "91.211.118.96:27028", "server_name": "CS2 DM | FFA #128 [UA] — CYBERSHOKE.NET (20 SLOTS)", "region": "Warsaw"},
-    {"server_id": "155.133.230.1:27015", "server_name": "Warsaw Valve Server #1", "region": "Warsaw"},
-    {"server_id": "155.133.230.2:27015", "server_name": "Warsaw Valve Server #2", "region": "Warsaw"},
-    {"server_id": "155.133.230.3:27015", "server_name": "Warsaw Valve Server #3", "region": "Warsaw"},
-    {"server_id": "155.133.230.4:27015", "server_name": "Warsaw Community Server #1", "region": "Warsaw"},
-    {"server_id": "155.133.230.5:27015", "server_name": "Warsaw Deathmatch Server", "region": "Warsaw"},
+    {"server_id": "91.211.118.96:27029", "server_name": "CS2 DM | FFA #129 [UA] — CYBERSHOKE.NET (20 SLOTS)", "region": "Warsaw"},
+    {"server_id": "91.211.118.96:27032", "server_name": "CS2 PISTOLDM | FFA #31 [UA] — CYBERSHOKE.NET (20 SLOTS)", "region": "Warsaw"},
     {"server_id": "51.77.47.216:27015", "server_name": "uwujka.pl [CS2 ARENA]", "region": "Warsaw"},
     {"server_id": "51.77.47.223:27015", "server_name": "uwujka.pl [CS2 DM] #1", "region": "Warsaw"},
     {"server_id": "51.77.47.223:27020", "server_name": "uwujka.pl [CS2 DM] #2", "region": "Warsaw"},
@@ -46,15 +41,21 @@ DEFAULT_SERVERS = [
 ]
 
 async def seed_servers_if_needed(pool: asyncpg.Pool):
-    """Seed initial servers into monitored_servers table if not already present"""
+    """Seed initial servers into monitored_servers table and remove old dummy servers"""
     async with pool.acquire() as conn:
+        # Clean up old dummy/unresponsive test servers if present
+        await conn.execute("""
+            DELETE FROM server_metrics WHERE server_id LIKE '155.133.230.%' OR server_id LIKE '185.25.180.%';
+            DELETE FROM monitored_servers WHERE server_id LIKE '155.133.230.%' OR server_id LIKE '185.25.180.%';
+        """)
+
         for s in DEFAULT_SERVERS:
             await conn.execute("""
                 INSERT INTO monitored_servers (server_id, server_name, region, status)
                 VALUES ($1, $2, $3, 'ONLINE')
                 ON CONFLICT (server_id) DO NOTHING;
             """, s["server_id"], s["server_name"], s["region"])
-    print(f"✅ {len(DEFAULT_SERVERS)} CS2 servers verified/seeded in monitored_servers table.")
+    print(f"✅ {len(DEFAULT_SERVERS)} real CS2 servers verified/seeded in monitored_servers table.")
 
 async def init_db() -> asyncpg.Pool:
     global db_pool

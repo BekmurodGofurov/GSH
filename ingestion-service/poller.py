@@ -50,9 +50,18 @@ async def poll_single_server(server_row, timeout: float = 1.5):
 
     now = datetime.now(timezone.utc)
     start_time = time.perf_counter()
+    info = None
     
-    try:
-        info = await a2s.ainfo((ip, port), timeout=timeout)
+    # Try query with 1 quick retry to absorb UDP network jitter
+    for attempt in range(2):
+        try:
+            info = await a2s.ainfo((ip, port), timeout=timeout)
+            break
+        except Exception:
+            if attempt == 0:
+                await asyncio.sleep(0.08)
+
+    if info is not None:
         latency_ms = round((time.perf_counter() - start_time) * 1000, 2)
         server_name = info.server_name or fallback_name
         player_count = info.player_count
@@ -68,14 +77,14 @@ async def poll_single_server(server_row, timeout: float = 1.5):
             tick_rate = 128.0
             
         status = "ONLINE"
-    except Exception:
+    else:
         latency_ms = 0.0
         server_name = fallback_name
         player_count = 0
         max_players = 0
         map_name = "unknown"
         tick_rate = 0.0
-        status = "NO_RESPONSE"
+        status = "OFFLINE"
         
     # 1. Write metric to TimescaleDB hypertable
     async with pool.acquire() as conn:
@@ -127,7 +136,11 @@ async def start_polling_loop():
                 servers = await get_active_servers()
                 if servers:
                     batch_start = time.perf_counter()
-                    tasks = [poll_single_server(srv) for srv in servers]
+                    tasks = []
+                    for srv in servers:
+                        tasks.append(asyncio.create_task(poll_single_server(srv)))
+                        await asyncio.sleep(0.015) # 15ms stagger to prevent UDP flood drops
+                        
                     results = await asyncio.gather(*tasks)
                     total_time = round((time.perf_counter() - batch_start) * 1000, 2)
                     online_count = sum(1 for r in results if r["status"] == "ONLINE")
