@@ -81,6 +81,25 @@ services:
     container_name: gsh-anomaly-detection-ml
     ports:
       - "8002:8002"
+    environment:
+      DB_URL: "postgresql://postgres:postgrespassword@timescaledb:5432/game_monitor"
+    depends_on:
+      timescaledb:
+        condition: service_healthy
+    restart: unless-stopped
+
+  anomaly-bridge:
+    build: ./anomaly-detection-ml
+    container_name: gsh-anomaly-bridge
+    command: ["python", "-u", "bridge.py"]
+    environment:
+      DB_URL: "postgresql://postgres:postgrespassword@timescaledb:5432/game_monitor"
+      ANOMALY_API_URL: "http://anomaly-detection-ml:8002/predict/anomaly"
+    depends_on:
+      timescaledb:
+        condition: service_healthy
+      anomaly-detection-ml:
+        condition: service_started
     restart: unless-stopped
 
 volumes:
