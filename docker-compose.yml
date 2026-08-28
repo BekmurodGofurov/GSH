@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   timescaledb:
     image: timescale/timescaledb:latest-pg15
@@ -33,7 +31,9 @@ services:
     restart: unless-stopped
 
   gateway-api:
-    build: ./gateway-api
+    build:
+      context: .
+      dockerfile: gateway-api/Dockerfile
     container_name: gsh-gateway-api
     ports:
       - "8000:8000"
@@ -48,7 +48,9 @@ services:
     restart: unless-stopped
 
   ingestion-service:
-    build: ./ingestion-service
+    build:
+      context: .
+      dockerfile: ingestion-service/Dockerfile
     container_name: gsh-ingestion-service
     ports:
       - "8001:8001"
@@ -61,21 +63,6 @@ services:
       redis:
         condition: service_healthy
     restart: unless-stopped
-
-  ingestion-generator:
-    build: ./ingestion-service
-    container_name: gsh-ingestion-generator
-    command: ["python", "-u", "generator.py"]
-    environment:
-      DB_URL: "postgresql://postgres:postgrespassword@timescaledb:5432/game_monitor"
-      REDIS_URL: "redis://redis:6379"
-    depends_on:
-      timescaledb:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-    restart: unless-stopped
-
   anomaly-detection-ml:
     build: ./anomaly-detection-ml
     container_name: gsh-anomaly-detection-ml

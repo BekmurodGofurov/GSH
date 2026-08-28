@@ -1,19 +1,25 @@
 import os
+import sys
+from pathlib import Path
 import asyncio
 import asyncpg
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Query, WebSocket, WebSocketDisconnect, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.encoders import jsonable_encoder
-from shared_schemas.models import ServerMetric  # shared_schemas integratsiyasi
 
-# Yangi server qo'shish uchun Pydantic schema
+# Support standalone and container imports for shared_schemas
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from shared_schemas.models import ServerMetric
+
+# Schema for registering a new server
 from pydantic import BaseModel
 
 class ServerCreate(BaseModel):
     server_id: str   # Format: "188.212.101.109:27015"
     server_name: str
-    region: str      # "Vienna", "Warsaw"
+    region: str      # "Vienna", "Warsaw", "EU-East"
 
 DB_URL = os.getenv("DB_URL", "postgresql://postgres:postgrespassword@localhost:5433/game_monitor")
 db_pool = None
@@ -67,7 +73,7 @@ LATEST_SERVERS_QUERY = """
 
 @app.post("/api/v1/servers", status_code=201)
 async def add_monitored_server(data: ServerCreate):
-    """Admin yoki Frontend orqali yangi CS2 server qo'shish"""
+    """Add or update a monitored CS2 server via Admin or Frontend"""
     async with db_pool.acquire() as conn:
         await conn.execute("""
             INSERT INTO monitored_servers (server_id, server_name, region, status)
@@ -75,7 +81,7 @@ async def add_monitored_server(data: ServerCreate):
             ON CONFLICT (server_id) DO UPDATE
             SET server_name = EXCLUDED.server_name, region = EXCLUDED.region;
         """, data.server_id, data.server_name, data.region)
-    return {"status": "success", "message": f"Server {data.server_id} monitoringga qo'shildi"}
+    return {"status": "success", "message": f"Server {data.server_id} added to monitoring"}
 
 # --- READ ENDPOINTS ---
 
