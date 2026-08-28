@@ -6,14 +6,11 @@ import asyncpg
 import httpx
 
 DB_URL = os.getenv("DB_URL")
-# Konteyner ichida ishlaganda o'ziga so'rov yubormoqchi bo'lsak localhost yetarli,
-# chunki bridge va FastAPI bir xil konteynerda ishlaydi.
 ANOMALY_API_URL = os.getenv("ANOMALY_API_URL", "http://localhost:8002/predict/anomaly")
 POLL_INTERVAL_SECONDS = float(os.getenv("BRIDGE_POLL_INTERVAL", "5"))
 
 
 async def fetch_new_metrics(pool: asyncpg.Pool, last_seen: datetime):
-    """server_metrics dan last_seen dan keyingi yozuvlarni, region bilan birga oladi."""
     query = """
         SELECT
             sm.time,
@@ -56,7 +53,6 @@ async def send_to_anomaly_api(client: httpx.AsyncClient, payload: dict):
 
 
 def classify_event_type(reasons: list[str]) -> str:
-    """Anomaliya sabablaridan server_events uchun event_type ni aniqlaydi."""
     reasons_text = " ".join(reasons).lower()
 
     if "dropped to zero" in reasons_text:
@@ -67,8 +63,6 @@ def classify_event_type(reasons: list[str]) -> str:
 
 
 async def record_event(pool: asyncpg.Pool, event_time, server_id: str, event_type: str, message: str):
-    """Anomaliyani server_events jadvaliga yozadi. root_cause hozircha bo'sh -
-    uni to'ldirish root-cause-ml xizmatining vazifasi."""
     query = """
         INSERT INTO server_events (time, server_id, event_type, root_cause, message)
         VALUES ($1, $2, $3, 'UNKNOWN', $4);
@@ -79,7 +73,6 @@ async def record_event(pool: asyncpg.Pool, event_time, server_id: str, event_typ
 
 async def run_bridge():
     pool = await asyncpg.create_pool(DB_URL)
-    # Boshlanishida hozirgi vaqtdan boshlaymiz, eski tarixni qayta yubormaslik uchun.
     last_seen = datetime.now(timezone.utc)
 
     print(f"🔗 Bridge ishga tushdi. Anomaly API: {ANOMALY_API_URL}")
