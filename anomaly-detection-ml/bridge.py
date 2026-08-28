@@ -1,12 +1,3 @@
-"""
-Bridge: TimescaleDB (server_metrics) -> Anomaly Detection API (/predict/anomaly)
-
-Har N soniyada bazadagi yangi server_metrics yozuvlarini o'qiydi va ularni
-anomaly-detection-ml xizmatiga (shu konteynerning o'zida ishlab turgan
-FastAPI'ga) HTTP orqali yuboradi. Anomaliya topilsa, konsolga chiqaradi va
-xohlasangiz server_events jadvaliga ham yozib qo'yadi.
-"""
-
 import asyncio
 import os
 from datetime import datetime, timezone
