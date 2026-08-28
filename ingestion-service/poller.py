@@ -12,7 +12,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from db import init_db, close_db, get_db_pool
 
-REDIS_URL = os.getenv("REDIS_URL")
+REDIS_URL = os.getenv("REDIS_URL") or "redis://localhost:6379"
 redis_client: Redis | None = None
 
 async def init_redis():
