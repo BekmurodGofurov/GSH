@@ -57,12 +57,24 @@ async def poll_single_server(server_row, timeout: float = 1.5):
         server_name = info.server_name or fallback_name
         player_count = info.player_count
         max_players = info.max_players
+        map_name = getattr(info, "map_name", None) or "de_mirage"
+        
+        # Calculate tick rate from keywords or default CS2 value
+        tick_rate = 128.0
+        keywords = getattr(info, "keywords", "") or ""
+        if "64" in keywords:
+            tick_rate = 64.0
+        elif "128" in keywords:
+            tick_rate = 128.0
+            
         status = "ONLINE"
     except Exception:
         latency_ms = 0.0
         server_name = fallback_name
         player_count = 0
         max_players = 0
+        map_name = "unknown"
+        tick_rate = 0.0
         status = "OFFLINE"
         
     # 1. Write metric to TimescaleDB hypertable
@@ -89,10 +101,13 @@ async def poll_single_server(server_row, timeout: float = 1.5):
                 "server_metrics_stream",
                 {
                     "server_id": server_id,
+                    "game": "cs2",
                     "region": region,
                     "player_count": str(player_count),
                     "max_players": str(max_players),
                     "ping_ms": str(latency_ms),
+                    "tick_rate": str(tick_rate),
+                    "map": map_name,
                     "status": status,
                     "timestamp": now.isoformat(),
                 },
@@ -101,7 +116,7 @@ async def poll_single_server(server_row, timeout: float = 1.5):
         except Exception:
             pass
 
-    return {"server_id": server_id, "status": status, "ping": latency_ms, "players": player_count}
+    return {"server_id": server_id, "status": status, "ping": latency_ms, "players": player_count, "tick_rate": tick_rate}
 
 async def start_polling_loop():
     print(" Dynamic UDP A2S Monitoring background task started...")
