@@ -1,13 +1,27 @@
-from fastapi import FastAPI, HTTPException
+import asyncio
+from contextlib import asynccontextmanager
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
-from typing import Optional
-import asyncpg
-import os
+from db import init_db, close_db, get_db_pool
+from shared_schemas.models import MetricPayload, EventPayload
+from poller import start_polling_loop
+
+poller_task = None
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    global poller_task
+    await init_db()
+    poller_task = asyncio.create_task(start_polling_loop())
+    yield
+    if poller_task:
+        poller_task.cancel()
+    await close_db()
 
 app = FastAPI(
     title="CS2 Ingestion Service",
-    version="1.0.0"
+    version="2.0.0",
+    lifespan=lifespan
 )
 
 app.add_middleware(
@@ -18,38 +32,15 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-DB_URL = os.getenv("DB_URL", "postgresql://postgres:postgrespassword@localhost:5433/game_monitor")
-db_pool = None
-
-@app.on_event("startup")
-async def startup():
-    global db_pool
-    db_pool = await asyncpg.create_pool(DB_URL)
-
-@app.on_event("shutdown")
-async def shutdown():
-    if db_pool:
-        await db_pool.close()
-
-class MetricPayload(BaseModel):
-    server_id: str
-    player_count: int
-    max_players: int
-    ping_ms: float
-
-class EventPayload(BaseModel):
-    server_id: str
-    event_type: str
-    root_cause: Optional[str] = "NORMAL"
-    message: str
-
 @app.get("/health")
 async def health_check():
     return {"status": "ok", "service": "ingestion-service"}
 
+# Faqat ichki xizmatlar yoki webhook'lar metrika va event yuborishi uchun
 @app.post("/api/v1/ingest/metric")
 async def ingest_metric(data: MetricPayload):
-    async with db_pool.acquire() as conn:
+    pool = get_db_pool()
+    async with pool.acquire() as conn:
         await conn.execute("""
             INSERT INTO server_metrics (time, server_id, player_count, max_players, ping_ms)
             VALUES (NOW(), $1, $2, $3, $4);
@@ -58,7 +49,8 @@ async def ingest_metric(data: MetricPayload):
 
 @app.post("/api/v1/ingest/event")
 async def ingest_event(data: EventPayload):
-    async with db_pool.acquire() as conn:
+    pool = get_db_pool()
+    async with pool.acquire() as conn:
         await conn.execute("""
             INSERT INTO server_events (time, server_id, event_type, root_cause, message)
             VALUES (NOW(), $1, $2, $3, $4);
