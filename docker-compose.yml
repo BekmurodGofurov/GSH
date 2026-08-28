@@ -76,5 +76,12 @@ services:
         condition: service_healthy
     restart: unless-stopped
 
+  anomaly-detection-ml:
+    build: ./anomaly-detection-ml
+    container_name: gsh-anomaly-detection-ml
+    ports:
+      - "8002:8002"
+    restart: unless-stopped
+
 volumes:
   timescale_data:
