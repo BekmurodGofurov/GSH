@@ -21,7 +21,9 @@ export function ServerCard({
   onSelect,
   onInspect,
 }) {
-  const isOnline = (server.status || '').toUpperCase() === 'ONLINE';
+  const status = (server.status || 'OFFLINE').toUpperCase();
+  const isOnline = status === 'ONLINE';
+  const isNoResponse = status === 'NO_RESPONSE';
   const playersRaw = Number(server.player_count);
   const maxPlayersRaw = Number(server.max_players);
   const players = Number.isFinite(playersRaw) && playersRaw >= 0 ? playersRaw : 0;
@@ -32,13 +34,15 @@ export function ServerCard({
     <Card
       interactive
       glow
-      glowColor={isOnline ? 'cyan' : 'rose'}
+      glowColor={isOnline ? 'cyan' : isNoResponse ? 'amber' : 'rose'}
       onClick={() => onSelect(server.server_id)}
       className={`border transition-all duration-200 ${
         isSelected
           ? 'border-cyan-500/80 bg-slate-800/80 shadow-glow'
           : isOnline
           ? 'border-slate-800/80 bg-slate-900/60'
+          : isNoResponse
+          ? 'border-amber-950/60 bg-amber-950/10'
           : 'border-rose-950/60 bg-rose-950/10'
       }`}
     >
@@ -47,12 +51,12 @@ export function ServerCard({
         <div className="flex items-center justify-between gap-2 mb-3">
           <div className="flex items-center gap-2">
             <Badge
-              variant={isOnline ? 'emerald' : 'rose'}
+              variant={isOnline ? 'emerald' : isNoResponse ? 'amber' : 'rose'}
               dot
               pulse={!isOnline}
               size="sm"
             >
-              {isOnline ? 'ONLINE' : 'OFFLINE'}
+              {isOnline ? 'ONLINE' : isNoResponse ? 'NO RESPONSE' : 'OFFLINE'}
             </Badge>
             <span className="text-[11px] font-mono text-slate-400 flex items-center gap-1 bg-slate-950/60 px-2 py-0.5 rounded border border-slate-800">
               <MapPin className="w-3 h-3 text-cyan-400" />
@@ -122,7 +126,9 @@ export function ServerCard({
             <Clock className="w-3 h-3 text-slate-400" />
             {isOnline
               ? `Online ${formatRelativeTime(server.last_online_at)}`
-              : `Down ${formatRelativeTime(server.last_offline_at)}`}
+              : server.last_online_at
+              ? `Last seen ${formatRelativeTime(server.last_online_at)}`
+              : 'No response recorded'}
           </span>
 
           <Button

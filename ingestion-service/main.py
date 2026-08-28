@@ -1,10 +1,17 @@
+import os
+import sys
+from pathlib import Path
 import asyncio
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+
+# Support standalone and container imports for shared_schemas
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
 from db import init_db, close_db, get_db_pool
 from shared_schemas.models import MetricPayload, EventPayload
-from poller import start_polling_loop
+from poller import start_polling_loop, init_redis, close_redis
 
 poller_task = None
 
@@ -12,10 +19,12 @@ poller_task = None
 async def lifespan(app: FastAPI):
     global poller_task
     await init_db()
+    await init_redis()
     poller_task = asyncio.create_task(start_polling_loop())
     yield
     if poller_task:
         poller_task.cancel()
+    await close_redis()
     await close_db()
 
 app = FastAPI(
@@ -36,7 +45,7 @@ app.add_middleware(
 async def health_check():
     return {"status": "ok", "service": "ingestion-service"}
 
-# Faqat ichki xizmatlar yoki webhook'lar metrika va event yuborishi uchun
+# Internal endpoints for services or webhooks to push metrics and events
 @app.post("/api/v1/ingest/metric")
 async def ingest_metric(data: MetricPayload):
     pool = get_db_pool()

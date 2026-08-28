@@ -1,8 +1,23 @@
-*.env
-*venv
-*.venv
-*node_modules
-*dist
+# Environment variables
+.env
+.env.*
+!.env.example
 
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.venv/
+venv/
+ENV/
 
-*.env.example
+# Node
+node_modules/
+dist/
+.dist/
+
+# OS / IDE
+.DS_Store
+.vscode/
+.idea/
+
