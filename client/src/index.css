@@ -14,6 +14,12 @@
     color: #f1f5f9;
   }
 
+  /* Light mode overrides */
+  :root:not(.dark) body {
+    background-color: #f1f5f9;
+    color: #0f172a;
+  }
+
   code, pre, .font-mono {
     font-family: var(--font-mono);
   }

@@ -51,6 +51,8 @@ export function useServerData() {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [justReconnected, setJustReconnected] = useState(false);
 
+  const [dailyInsights, setDailyInsights] = useState({ restarts: [], busy: [], ping: [], loading: false });
+
   // Filters
   const [searchQuery, setSearchQuery] = useState('');
   const [regionFilter, setRegionFilter] = useState('ALL');
@@ -174,6 +176,26 @@ export function useServerData() {
     }
   }, [syncToStorage]);
 
+  // Fetch the 3 daily insights datasets in parallel
+  const fetchDailyInsights = useCallback(async () => {
+    setDailyInsights((prev) => ({ ...prev, loading: true }));
+    try {
+      const [restartsRes, busyRes, pingRes] = await Promise.all([
+        api.getDailyRestarts(),
+        api.getDailyBusy(),
+        api.getDailyPing(),
+      ]);
+      setDailyInsights({
+        restarts: restartsRes.data || [],
+        busy: busyRes.data || [],
+        ping: pingRes.data || [],
+        loading: false,
+      });
+    } catch {
+      setDailyInsights((prev) => ({ ...prev, loading: false }));
+    }
+  }, []);
+
   // Handle WebSocket reconnection
   const handleWsOpen = useCallback(() => {
     if (wasOfflineRef.current) {
@@ -221,7 +243,8 @@ export function useServerData() {
   // Initial load
   useEffect(() => {
     fetchData();
-  }, [fetchData]);
+    fetchDailyInsights();
+  }, [fetchData, fetchDailyInsights]);
 
   // Load metrics when activeServerId or timeRange changes
   useEffect(() => {
@@ -338,5 +361,7 @@ export function useServerData() {
     },
     refreshData: () => fetchData(true),
     audio,
+    dailyInsights,
+    refreshInsights: fetchDailyInsights,
   };
 }

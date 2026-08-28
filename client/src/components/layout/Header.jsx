@@ -6,6 +6,8 @@ import {
   Radio,
   Search,
   Globe2,
+  Sun,
+  Moon,
 } from 'lucide-react';
 import { Badge } from '../common/Badge';
 import { Button } from '../common/Button';
@@ -22,6 +24,8 @@ export function Header({
   searchQuery,
   onSearchChange,
   kpis,
+  theme,
+  toggleTheme,
 }) {
   const isWsConnected = wsStatus === 'connected';
 
@@ -88,6 +92,21 @@ export function Header({
             {lastSyncTime ? formatTime(lastSyncTime) : 'Never'}
           </span>
         </div>
+
+        {/* Dark / Light Mode Toggle */}
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={toggleTheme}
+          title={theme === 'dark' ? 'Switch to Light Mode' : 'Switch to Dark Mode'}
+          className="text-slate-400 hover:text-yellow-300"
+        >
+          {theme === 'dark' ? (
+            <Sun className="w-4 h-4" />
+          ) : (
+            <Moon className="w-4 h-4" />
+          )}
+        </Button>
 
         {/* Audio Mute/Unmute Toggle */}
         <Button

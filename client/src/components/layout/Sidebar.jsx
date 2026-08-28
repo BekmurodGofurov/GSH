@@ -7,6 +7,7 @@ import {
   Bell,
   Cpu,
   ShieldCheck,
+  TrendingUp,
 } from 'lucide-react';
 import { cn } from '../../utils/cn';
 import { Badge } from '../common/Badge';
@@ -39,6 +40,13 @@ export function Sidebar({ currentView, onViewChange, kpis, eventCount, crashCoun
       icon: BarChart3,
       badge: '1-min',
       badgeVariant: 'cyan',
+    },
+    {
+      id: 'insights',
+      label: 'Daily Insights',
+      icon: TrendingUp,
+      badge: '24h',
+      badgeVariant: 'violet',
     },
     {
       id: 'alerting',

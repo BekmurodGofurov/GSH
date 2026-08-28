@@ -102,4 +102,31 @@ export const api = {
       error: res.error,
     };
   },
+
+  // 5. GET /api/v1/analytics/daily-restarts
+  async getDailyRestarts(bypassCircuit = false) {
+    const res = await fetchSafe('/api/v1/analytics/daily-restarts', { bypassCircuit });
+    return {
+      data: Array.isArray(res.data) ? res.data : null,
+      error: res.error,
+    };
+  },
+
+  // 6. GET /api/v1/analytics/daily-busy
+  async getDailyBusy(bypassCircuit = false) {
+    const res = await fetchSafe('/api/v1/analytics/daily-busy', { bypassCircuit });
+    return {
+      data: Array.isArray(res.data) ? res.data : null,
+      error: res.error,
+    };
+  },
+
+  // 7. GET /api/v1/analytics/daily-ping
+  async getDailyPing(bypassCircuit = false) {
+    const res = await fetchSafe('/api/v1/analytics/daily-ping', { bypassCircuit });
+    return {
+      data: Array.isArray(res.data) ? res.data : null,
+      error: res.error,
+    };
+  },
 };

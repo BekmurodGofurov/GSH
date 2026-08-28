@@ -1,16 +1,19 @@
 import React, { useState } from 'react';
 import { useServerData } from './hooks/useServerData';
+import { useTheme } from './hooks/useTheme';
 import { Layout } from './components/layout/Layout';
 import { OverviewView } from './components/views/OverviewView';
 import { ServersView } from './components/views/ServersView';
 import { EventLogsView } from './components/views/EventLogsView';
 import { AnalyticsView } from './components/views/AnalyticsView';
 import { AlertingSettingsView } from './components/views/AlertingSettingsView';
+import { InsightsView } from './components/views/InsightsView';
 import { ServerDetailModal } from './components/dashboard/ServerDetailModal';
 
 export function App() {
   const [currentView, setCurrentView] = useState('overview');
   const [inspectServer, setInspectServer] = useState(null);
+  const { theme, toggleTheme } = useTheme();
 
   const {
     servers,
@@ -40,6 +43,8 @@ export function App() {
     reconnectWs,
     refreshData,
     audio,
+    dailyInsights,
+    refreshInsights,
   } = useServerData();
 
   const crashCount = (events || []).filter(
@@ -64,6 +69,8 @@ export function App() {
       kpis={kpis}
       eventCount={events.length}
       crashCount={crashCount}
+      theme={theme}
+      toggleTheme={toggleTheme}
     >
       {/* Dynamic View rendering */}
       {currentView === 'overview' && (
@@ -120,6 +127,13 @@ export function App() {
         <AnalyticsView
           pingBuckets={pingBuckets}
           servers={servers}
+        />
+      )}
+
+      {currentView === 'insights' && (
+        <InsightsView
+          dailyInsights={dailyInsights}
+          onRefresh={refreshInsights}
         />
       )}
 
