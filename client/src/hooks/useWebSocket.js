@@ -182,11 +182,22 @@ export function useWebSocket(url = DEFAULT_WS_URL, options = {}) {
     connect();
   }, [connect, safelyCloseSocket]);
 
+  const sendMessage = useCallback((data) => {
+    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+      try {
+        wsRef.current.send(JSON.stringify(data));
+      } catch (e) {
+        // Ignore send errors (socket closing)
+      }
+    }
+  }, []);
+
   return {
     status,
     isConnected: status === 'connected',
     isOffline: status === 'offline' || status === 'reconnecting',
     retryCountdown,
     reconnect: manualReconnect,
+    sendMessage,
   };
 }

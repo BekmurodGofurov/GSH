@@ -25,7 +25,7 @@ export function Layout({
   toggleTheme,
 }) {
   return (
-    <div className="min-h-screen bg-[#080c14] dark:bg-[#080c14] light:bg-slate-100 text-slate-100 dark:text-slate-100 flex flex-col font-sans bg-grid-pattern antialiased">
+    <div className="min-h-screen flex flex-col font-sans bg-grid-pattern antialiased">
       {/* Top Navbar */}
       <Header
         wsStatus={wsStatus}

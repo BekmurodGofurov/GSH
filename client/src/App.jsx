@@ -9,6 +9,7 @@ import { AnalyticsView } from './components/views/AnalyticsView';
 import { AlertingSettingsView } from './components/views/AlertingSettingsView';
 import { InsightsView } from './components/views/InsightsView';
 import { ServerDetailModal } from './components/dashboard/ServerDetailModal';
+import { ToastContainer } from './components/common/ToastNotification';
 
 export function App() {
   const [currentView, setCurrentView] = useState('overview');
@@ -45,6 +46,19 @@ export function App() {
     audio,
     dailyInsights,
     refreshInsights,
+    paginatedOverview,
+    overviewPage,
+    overviewTotalPages,
+    goToOverviewPage,
+    overviewPageSize,
+    changeOverviewPageSize,
+    paginatedFleet,
+    fleetPage,
+    fleetTotalPages,
+    goToFleetPage,
+    notifications,
+    dismissNotification,
+    triggerTestNotification,
   } = useServerData();
 
   const crashCount = (events || []).filter(
@@ -77,7 +91,7 @@ export function App() {
         <OverviewView
           kpis={kpis}
           servers={servers}
-          filteredServers={filteredServers}
+          filteredServers={paginatedOverview}
           activeServer={activeServer}
           activeServerId={activeServerId}
           onSelectServer={setActiveServerId}
@@ -92,13 +106,19 @@ export function App() {
           onStatusChange={setStatusFilter}
           timeRange={timeRange}
           onTimeRangeChange={setTimeRange}
+          currentPage={overviewPage}
+          totalPages={overviewTotalPages}
+          onPageChange={goToOverviewPage}
+          pageSize={overviewPageSize}
+          onPageSizeChange={changeOverviewPageSize}
+          totalCount={filteredServers.length}
         />
       )}
 
       {currentView === 'servers' && (
         <ServersView
           servers={servers}
-          filteredServers={filteredServers}
+          filteredServers={paginatedFleet}
           activeServerId={activeServerId}
           onSelectServer={setActiveServerId}
           onInspectServer={(srv) => setInspectServer(srv)}
@@ -109,6 +129,10 @@ export function App() {
           onStatusChange={setStatusFilter}
           searchQuery={searchQuery}
           onSearchChange={setSearchQuery}
+          currentPage={fleetPage}
+          totalPages={fleetTotalPages}
+          onPageChange={goToFleetPage}
+          totalCount={filteredServers.length}
         />
       )}
 
@@ -138,7 +162,10 @@ export function App() {
       )}
 
       {currentView === 'alerting' && (
-        <AlertingSettingsView audio={audio} />
+        <AlertingSettingsView
+          audio={audio}
+          onTriggerTestAlert={triggerTestNotification}
+        />
       )}
 
       {/* Inspect Server Detail Modal */}
@@ -147,6 +174,16 @@ export function App() {
         isOpen={Boolean(inspectServer)}
         onClose={() => setInspectServer(null)}
         events={events}
+      />
+
+      {/* Real-time Toast Notifications (Top-Right, 5s Auto Dismiss) */}
+      <ToastContainer
+        toasts={notifications}
+        onDismiss={dismissNotification}
+        onInspect={(sid) => {
+          const found = servers.find((s) => s.server_id === sid);
+          if (found) setInspectServer(found);
+        }}
       />
     </Layout>
   );

@@ -19,7 +19,7 @@ export function EventFeedTimeline({ events = [], onSelectServer }) {
   });
 
   return (
-    <Card className="border-slate-800/80">
+    <Card className="border-slate-200/80 dark:border-slate-800/80">
       <CardHeader className="flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
         <div className="flex items-center gap-2.5">
           <CardTitle icon={Terminal}>Live System Incidents & Event Feed</CardTitle>
@@ -29,15 +29,15 @@ export function EventFeedTimeline({ events = [], onSelectServer }) {
         </div>
 
         {/* Severity Filter Tabs */}
-        <div className="flex items-center rounded-lg bg-slate-950/80 border border-slate-800 p-0.5 text-xs font-mono">
+        <div className="flex items-center rounded-lg bg-slate-100/90 dark:bg-slate-950/80 border border-slate-200 dark:border-slate-800 p-0.5 text-xs font-mono">
           {['ALL', 'CRASH', 'HIGH_PING', 'RECOVERY'].map((type) => (
             <button
               key={type}
               onClick={() => setFilterType(type)}
-              className={`px-2 py-1 rounded-md transition-all ${
+              className={`px-2 py-1 rounded-md transition-all cursor-pointer ${
                 filterType === type
-                  ? 'bg-cyan-500/20 text-cyan-300 font-semibold border border-cyan-500/40'
-                  : 'text-slate-400 hover:text-slate-200'
+                  ? 'bg-white dark:bg-cyan-500/20 text-cyan-700 dark:text-cyan-300 font-semibold border border-slate-200 dark:border-cyan-500/40 shadow-xs'
+                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
               }`}
             >
               {type}
@@ -47,9 +47,9 @@ export function EventFeedTimeline({ events = [], onSelectServer }) {
       </CardHeader>
 
       <CardContent className="p-0">
-        <div className="max-h-[380px] overflow-y-auto divide-y divide-slate-800/60 font-mono text-xs">
+        <div className="max-h-[380px] overflow-y-auto divide-y divide-slate-100 dark:divide-slate-800/60 font-mono text-xs">
           {filteredEvents.length === 0 ? (
-            <div className="p-8 text-center text-slate-400">
+            <div className="p-8 text-center text-slate-500 dark:text-slate-400">
               No events match the selected filter.
             </div>
           ) : (
@@ -60,22 +60,22 @@ export function EventFeedTimeline({ events = [], onSelectServer }) {
               return (
                 <div
                   key={evt.id || `${evt.server_id}-${evt.time}`}
-                  className={`p-3.5 sm:p-4 hover:bg-slate-800/40 transition-colors flex items-start gap-3.5 ${
-                    isCrash ? 'bg-rose-950/10' : ''
+                  className={`p-3.5 sm:p-4 hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors flex items-start gap-3.5 ${
+                    isCrash ? 'bg-rose-50/50 dark:bg-rose-950/10' : ''
                   }`}
                 >
                   {/* Icon Indicator */}
                   <div className="mt-0.5">
                     {isCrash ? (
-                      <div className="p-1.5 rounded-lg bg-rose-500/20 text-rose-400 border border-rose-500/40 animate-pulse">
+                      <div className="p-1.5 rounded-lg bg-rose-100 dark:bg-rose-500/20 text-rose-600 dark:text-rose-400 border border-rose-200 dark:border-rose-500/40 animate-pulse">
                         <Flame className="w-4 h-4" />
                       </div>
                     ) : (evt.event_type || '').toUpperCase() === 'RECOVERY' ? (
-                      <div className="p-1.5 rounded-lg bg-emerald-500/20 text-emerald-400 border border-emerald-500/40">
+                      <div className="p-1.5 rounded-lg bg-emerald-100 dark:bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-500/40">
                         <CheckCircle2 className="w-4 h-4" />
                       </div>
                     ) : (
-                      <div className="p-1.5 rounded-lg bg-amber-500/20 text-amber-400 border border-amber-500/40">
+                      <div className="p-1.5 rounded-lg bg-amber-100 dark:bg-amber-500/20 text-amber-600 dark:text-amber-400 border border-amber-200 dark:border-amber-500/40">
                         <AlertTriangle className="w-4 h-4" />
                       </div>
                     )}
@@ -90,20 +90,20 @@ export function EventFeedTimeline({ events = [], onSelectServer }) {
                         </Badge>
                         <button
                           onClick={() => onSelectServer && onSelectServer(evt.server_id)}
-                          className="font-bold text-slate-200 hover:text-cyan-400 hover:underline transition-colors"
+                          className="font-bold text-slate-800 dark:text-slate-200 hover:text-cyan-600 dark:hover:text-cyan-400 hover:underline transition-colors cursor-pointer"
                         >
                           {evt.server_id}
                         </button>
                       </div>
 
-                      <div className="flex items-center gap-2 text-[11px] text-slate-400">
+                      <div className="flex items-center gap-2 text-[11px] text-slate-500 dark:text-slate-400">
                         <Clock className="w-3 h-3 text-slate-400" />
                         <span>{formatRelativeTime(evt.time)}</span>
                         <span className="text-slate-400">({formatTime(evt.time)})</span>
                       </div>
                     </div>
 
-                    <p className="text-slate-300 text-xs font-sans mt-1 leading-relaxed">
+                    <p className="text-slate-600 dark:text-slate-300 text-xs font-sans mt-1 leading-relaxed">
                       {evt.message}
                     </p>
                   </div>

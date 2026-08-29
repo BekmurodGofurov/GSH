@@ -15,22 +15,22 @@ import { Card, CardHeader, CardTitle, CardContent } from '../common/Card';
 import { Badge } from '../common/Badge';
 import { formatTime } from '../../utils/formatters';
 
-// Custom dark gaming tooltip
+// Custom tooltip supporting light and dark modes
 function CustomTooltip({ active, payload, label }) {
   if (active && payload && payload.length) {
     return (
-      <div className="rounded-xl border border-slate-700 bg-slate-950/95 p-3.5 shadow-2xl backdrop-blur-md font-mono text-xs space-y-2 min-w-[170px]">
-        <div className="text-[11px] text-slate-400 border-b border-slate-800 pb-1.5 flex justify-between items-center">
+      <div className="rounded-xl border border-slate-200 dark:border-slate-700 bg-white/95 dark:bg-slate-950/95 p-3.5 shadow-xl dark:shadow-2xl backdrop-blur-md font-mono text-xs space-y-2 min-w-[170px]">
+        <div className="text-[11px] text-slate-500 dark:text-slate-400 border-b border-slate-100 dark:border-slate-800 pb-1.5 flex justify-between items-center">
           <span>TIME</span>
-          <span className="text-slate-200 font-semibold">{formatTime(label)}</span>
+          <span className="text-slate-800 dark:text-slate-200 font-semibold">{formatTime(label)}</span>
         </div>
         {payload.map((entry, index) => (
           <div key={`item-${index}`} className="flex items-center justify-between gap-4">
-            <span className="flex items-center gap-1.5" style={{ color: entry.color }}>
+            <span className="flex items-center gap-1.5 font-medium" style={{ color: entry.color }}>
               <span className="w-2 h-2 rounded-full" style={{ backgroundColor: entry.color }} />
               {entry.name === 'player_count' ? 'Players' : 'Ping'}
             </span>
-            <span className="font-bold text-slate-100">
+            <span className="font-bold text-slate-900 dark:text-slate-100">
               {entry.value} {entry.name === 'ping_ms' ? 'ms' : ''}
             </span>
           </div>
@@ -57,7 +57,7 @@ export function ServerMetricsChart({
   const latestMetric = metrics && metrics.length > 0 ? metrics[metrics.length - 1] : null;
 
   return (
-    <Card className="border-slate-800/80">
+    <Card className="border-slate-200/80 dark:border-slate-800/80">
       <CardHeader className="flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
         <div>
           <div className="flex items-center gap-2.5">
@@ -72,7 +72,7 @@ export function ServerMetricsChart({
               </Badge>
             )}
           </div>
-          <p className="text-xs text-slate-400 mt-1 font-mono">
+          <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 font-mono">
             {activeServer
               ? `${activeServer.server_name} (${activeServer.server_id})`
               : 'Real-time Player vs Latency stream'}
@@ -85,13 +85,13 @@ export function ServerMetricsChart({
           <select
             value={activeServer?.server_id || ''}
             onChange={(e) => onSelectServer(e.target.value)}
-            className="bg-slate-900 border border-slate-700/80 rounded-lg px-2.5 py-1.5 text-xs text-slate-200 font-mono outline-none focus:border-cyan-500 cursor-pointer"
+            className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700/80 rounded-lg px-2.5 py-1.5 text-xs text-slate-800 dark:text-slate-200 font-mono outline-none focus:border-cyan-500 cursor-pointer shadow-xs dark:shadow-none"
           >
             {servers.length === 0 ? (
               <option value="">No servers available</option>
             ) : (
               servers.map((s) => (
-                <option key={s.server_id} value={s.server_id}>
+                <option key={s.server_id} value={s.server_id} className="bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100">
                   {s.server_name} ({s.region})
                 </option>
               ))
@@ -99,15 +99,15 @@ export function ServerMetricsChart({
           </select>
 
           {/* Time Limit Pills */}
-          <div className="flex items-center rounded-lg bg-slate-900/90 border border-slate-800 p-0.5 text-xs font-mono">
+          <div className="flex items-center rounded-lg bg-slate-100 dark:bg-slate-900/90 border border-slate-200 dark:border-slate-800 p-0.5 text-xs font-mono">
             {['15', '30', '60'].map((range) => (
               <button
                 key={range}
                 onClick={() => onTimeRangeChange(range)}
-                className={`px-2.5 py-1 rounded-md transition-all ${
+                className={`px-2.5 py-1 rounded-md transition-all cursor-pointer ${
                   timeRange === range
-                    ? 'bg-cyan-500/20 text-cyan-300 font-semibold border border-cyan-500/40'
-                    : 'text-slate-400 hover:text-slate-200'
+                    ? 'bg-white dark:bg-cyan-500/20 text-cyan-700 dark:text-cyan-300 font-semibold border border-slate-200 dark:border-cyan-500/40 shadow-xs'
+                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
                 }`}
               >
                 {range} pts
@@ -120,27 +120,27 @@ export function ServerMetricsChart({
       <CardContent className="pt-2">
         {/* Quick summary badges */}
         {latestMetric && (
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4 p-3 rounded-lg bg-slate-950/40 border border-slate-800/60 font-mono text-xs">
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4 p-3 rounded-lg bg-slate-50 dark:bg-slate-950/40 border border-slate-200/80 dark:border-slate-800/60 font-mono text-xs">
             <div>
-              <span className="text-slate-400 block text-[10px]">CURRENT PING</span>
-              <span className="text-sm font-bold text-cyan-400">{latestMetric.ping_ms ?? '--'} ms</span>
+              <span className="text-slate-500 dark:text-slate-400 block text-[10px]">CURRENT PING</span>
+              <span className="text-sm font-bold text-cyan-700 dark:text-cyan-400">{latestMetric.ping_ms ?? '--'} ms</span>
             </div>
             <div>
-              <span className="text-slate-400 block text-[10px]">PLAYERS IN MATCH</span>
-              <span className="text-sm font-bold text-violet-400">
+              <span className="text-slate-500 dark:text-slate-400 block text-[10px]">PLAYERS IN MATCH</span>
+              <span className="text-sm font-bold text-violet-700 dark:text-violet-400">
                 {latestMetric.player_count ?? 0} / {latestMetric.max_players || activeServer?.max_players || 24}
               </span>
             </div>
             <div>
-              <span className="text-slate-400 block text-[10px]">TICK RATE</span>
-              <span className="text-sm font-bold text-emerald-400">
+              <span className="text-slate-500 dark:text-slate-400 block text-[10px]">TICK RATE</span>
+              <span className="text-sm font-bold text-emerald-700 dark:text-emerald-400">
                 {latestMetric.tick_rate || 128} Hz
               </span>
             </div>
             <div>
-              <span className="text-slate-400 block text-[10px]">CURRENT MAP</span>
-              <span className="text-sm font-bold text-slate-200">
-                {activeServer?.map || 'de_mirage'}
+              <span className="text-slate-500 dark:text-slate-400 block text-[10px]">CURRENT MAP</span>
+              <span className="text-sm font-bold text-slate-800 dark:text-slate-200">
+                {latestMetric.map || activeServer?.map || 'de_mirage'}
               </span>
             </div>
           </div>

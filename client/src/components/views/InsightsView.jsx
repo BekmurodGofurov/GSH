@@ -35,7 +35,7 @@ function restartBadgeVariant(count) {
 function FillBar({ value, max, color = 'bg-cyan-500' }) {
   const pct = max > 0 ? Math.min(100, (value / max) * 100) : 0;
   return (
-    <div className="w-full h-1.5 rounded-full bg-slate-800 dark:bg-slate-800 overflow-hidden">
+    <div className="w-full h-1.5 rounded-full bg-slate-100 dark:bg-slate-800 overflow-hidden">
       <div
         className={`h-full rounded-full ${color} transition-all duration-500`}
         style={{ width: `${pct}%` }}
@@ -51,44 +51,44 @@ function RestartsSection({ restarts, loading }) {
   const displayed = restarts.slice(0, 15);
 
   return (
-    <Card>
+    <Card className="border-slate-200/80 dark:border-slate-800/80">
       <CardHeader>
         <CardTitle icon={AlertTriangle}>Server Restarts (Last 24h)</CardTitle>
-        <span className="text-xs text-slate-400 dark:text-slate-400 font-mono">
+        <span className="text-xs text-slate-500 dark:text-slate-400 font-mono">
           Offline events from <code>server_events</code>
         </span>
       </CardHeader>
       <CardContent className="p-0">
         {loading ? (
-          <div className="flex items-center justify-center h-28 text-slate-500 text-sm">Loading…</div>
+          <div className="flex items-center justify-center h-28 text-slate-400 text-sm">Loading…</div>
         ) : displayed.length === 0 ? (
-          <div className="flex items-center justify-center h-28 text-slate-500 text-sm">No data yet</div>
+          <div className="flex items-center justify-center h-28 text-slate-400 text-sm">No data yet</div>
         ) : (
-          <div className="divide-y divide-slate-800/60">
+          <div className="divide-y divide-slate-100 dark:divide-slate-800/60">
             {displayed.map((row, i) => {
               const count = Number(row.restart_count) || 0;
               return (
                 <div
                   key={row.server_id}
-                  className="flex items-center justify-between px-5 py-3 hover:bg-slate-800/30 transition-colors"
+                  className="flex items-center justify-between px-5 py-3 hover:bg-slate-50 dark:hover:bg-slate-800/30 transition-colors"
                 >
                   {/* Rank + Name */}
                   <div className="flex items-center gap-3 min-w-0">
-                    <span className="text-[11px] font-mono text-slate-500 w-5 text-right shrink-0">
+                    <span className="text-[11px] font-mono text-slate-400 dark:text-slate-500 w-5 text-right shrink-0">
                       {i + 1}
                     </span>
                     <div className="min-w-0">
-                      <p className="text-sm font-medium text-slate-100 dark:text-slate-100 truncate leading-tight">
+                      <p className="text-sm font-medium text-slate-900 dark:text-slate-100 truncate leading-tight">
                         {shortName(row.server_name)}
                       </p>
-                      <p className="text-[11px] text-slate-500 font-mono mt-0.5">{row.region}</p>
+                      <p className="text-[11px] text-slate-500 dark:text-slate-400 font-mono mt-0.5">{row.region}</p>
                     </div>
                   </div>
 
                   {/* Count badge */}
                   <div className="flex items-center gap-2 shrink-0 ml-4">
                     {count === 0 ? (
-                      <CheckCircle className="w-3.5 h-3.5 text-emerald-400" />
+                      <CheckCircle className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
                     ) : (
                       <AlertTriangle className={`w-3.5 h-3.5 ${restartColor(count)}`} />
                     )}
@@ -114,39 +114,39 @@ function BusySection({ busy, loading }) {
   const maxAvg = displayed.length > 0 ? Math.max(...displayed.map((r) => Number(r.avg_players))) : 1;
 
   return (
-    <Card>
+    <Card className="border-slate-200/80 dark:border-slate-800/80">
       <CardHeader>
         <CardTitle icon={Users}>Busiest Servers (Last 24h)</CardTitle>
-        <span className="text-xs text-slate-400 font-mono">
+        <span className="text-xs text-slate-500 dark:text-slate-400 font-mono">
           Avg &amp; peak from <code>server_metrics</code>
         </span>
       </CardHeader>
       <CardContent className="p-0">
         {loading ? (
-          <div className="flex items-center justify-center h-28 text-slate-500 text-sm">Loading…</div>
+          <div className="flex items-center justify-center h-28 text-slate-400 text-sm">Loading…</div>
         ) : displayed.length === 0 ? (
-          <div className="flex items-center justify-center h-28 text-slate-500 text-sm">No player data yet</div>
+          <div className="flex items-center justify-center h-28 text-slate-400 text-sm">No player data yet</div>
         ) : (
-          <div className="divide-y divide-slate-800/60">
+          <div className="divide-y divide-slate-100 dark:divide-slate-800/60">
             {displayed.map((row, i) => {
               const avg = Number(row.avg_players) || 0;
               const peak = Number(row.peak_players) || 0;
               const slots = Number(row.max_slots) || 20;
               return (
-                <div key={row.server_id} className="px-5 py-3 hover:bg-slate-800/30 transition-colors">
+                <div key={row.server_id} className="px-5 py-3 hover:bg-slate-50 dark:hover:bg-slate-800/30 transition-colors">
                   <div className="flex items-center justify-between mb-1.5">
                     <div className="flex items-center gap-3 min-w-0">
-                      <span className="text-[11px] font-mono text-slate-500 w-5 text-right shrink-0">{i + 1}</span>
+                      <span className="text-[11px] font-mono text-slate-400 dark:text-slate-500 w-5 text-right shrink-0">{i + 1}</span>
                       <div className="min-w-0">
-                        <p className="text-sm font-medium text-slate-100 truncate leading-tight">
+                        <p className="text-sm font-medium text-slate-900 dark:text-slate-100 truncate leading-tight">
                           {shortName(row.server_name)}
                         </p>
-                        <p className="text-[11px] text-slate-500 font-mono mt-0.5">{row.region}</p>
+                        <p className="text-[11px] text-slate-500 dark:text-slate-400 font-mono mt-0.5">{row.region}</p>
                       </div>
                     </div>
                     <div className="text-right shrink-0 ml-4">
-                      <p className="text-sm font-bold text-cyan-400 font-mono">{avg.toFixed(1)}</p>
-                      <p className="text-[10px] text-slate-500">avg / {peak} peak</p>
+                      <p className="text-sm font-bold text-cyan-700 dark:text-cyan-400 font-mono">{avg.toFixed(1)}</p>
+                      <p className="text-[10px] text-slate-500 dark:text-slate-400">avg / {peak} peak</p>
                     </div>
                   </div>
                   <div className="pl-8">
@@ -170,41 +170,41 @@ function PingSection({ ping, loading }) {
   const maxPing = displayed.length > 0 ? Math.max(...displayed.map((r) => Number(r.avg_ping))) : 200;
 
   return (
-    <Card>
+    <Card className="border-slate-200/80 dark:border-slate-800/80">
       <CardHeader>
         <CardTitle icon={Zap}>Lowest Avg Ping (Last 24h)</CardTitle>
-        <span className="text-xs text-slate-400 font-mono">
+        <span className="text-xs text-slate-500 dark:text-slate-400 font-mono">
           Daily latency from <code>server_metrics</code>
         </span>
       </CardHeader>
       <CardContent className="p-0">
         {loading ? (
-          <div className="flex items-center justify-center h-28 text-slate-500 text-sm">Loading…</div>
+          <div className="flex items-center justify-center h-28 text-slate-400 text-sm">Loading…</div>
         ) : displayed.length === 0 ? (
-          <div className="flex items-center justify-center h-28 text-slate-500 text-sm">No ping data yet</div>
+          <div className="flex items-center justify-center h-28 text-slate-400 text-sm">No ping data yet</div>
         ) : (
-          <div className="divide-y divide-slate-800/60">
+          <div className="divide-y divide-slate-100 dark:divide-slate-800/60">
             {displayed.map((row, i) => {
               const avg = Number(row.avg_ping) || 0;
               const best = Number(row.best_ping) || 0;
               const samples = Number(row.sample_count) || 0;
               return (
-                <div key={row.server_id} className="px-5 py-3 hover:bg-slate-800/30 transition-colors">
+                <div key={row.server_id} className="px-5 py-3 hover:bg-slate-50 dark:hover:bg-slate-800/30 transition-colors">
                   <div className="flex items-center justify-between mb-1.5">
                     <div className="flex items-center gap-3 min-w-0">
-                      <span className="text-[11px] font-mono text-slate-500 w-5 text-right shrink-0">{i + 1}</span>
+                      <span className="text-[11px] font-mono text-slate-400 dark:text-slate-500 w-5 text-right shrink-0">{i + 1}</span>
                       <div className="min-w-0">
-                        <p className="text-sm font-medium text-slate-100 truncate leading-tight">
+                        <p className="text-sm font-medium text-slate-900 dark:text-slate-100 truncate leading-tight">
                           {shortName(row.server_name)}
                         </p>
-                        <p className="text-[11px] text-slate-500 font-mono mt-0.5">
+                        <p className="text-[11px] text-slate-500 dark:text-slate-400 font-mono mt-0.5">
                           {row.region} · {samples.toLocaleString()} samples
                         </p>
                       </div>
                     </div>
                     <div className="text-right shrink-0 ml-4">
                       <p className={`text-sm font-bold font-mono ${pingColor(avg)}`}>{avg} ms</p>
-                      <p className="text-[10px] text-slate-500">best {best} ms</p>
+                      <p className="text-[10px] text-slate-500 dark:text-slate-400">best {best} ms</p>
                     </div>
                   </div>
                   <div className="pl-8">
@@ -236,11 +236,11 @@ export function InsightsView({ dailyInsights = {}, onRefresh }) {
       {/* Page Header */}
       <div className="flex items-start justify-between">
         <div>
-          <h2 className="text-xl sm:text-2xl font-bold tracking-tight text-slate-100 flex items-center gap-2.5">
-            <TrendingUp className="w-6 h-6 text-cyan-400" />
+          <h2 className="text-xl sm:text-2xl font-bold tracking-tight text-slate-900 dark:text-slate-100 flex items-center gap-2.5">
+            <TrendingUp className="w-6 h-6 text-cyan-600 dark:text-cyan-400" />
             Daily Server Insights
           </h2>
-          <p className="text-xs text-slate-400 mt-1 font-mono">
+          <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 font-mono">
             Last 24 hours · sourced from <code>monitored_servers</code> + <code>server_metrics</code>
           </p>
         </div>
@@ -258,16 +258,16 @@ export function InsightsView({ dailyInsights = {}, onRefresh }) {
 
       {/* Summary Pills */}
       <div className="flex flex-wrap gap-2">
-        <span className="text-xs font-mono px-3 py-1 rounded-full bg-slate-800/80 border border-slate-700 text-slate-300">
-          <span className="text-rose-400 font-bold">{restarts.filter((r) => Number(r.restart_count) > 0).length}</span>
+        <span className="text-xs font-mono px-3 py-1 rounded-full bg-slate-100 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 shadow-xs dark:shadow-none">
+          <span className="text-rose-600 dark:text-rose-400 font-bold">{restarts.filter((r) => Number(r.restart_count) > 0).length}</span>
           &nbsp;servers had outages
         </span>
-        <span className="text-xs font-mono px-3 py-1 rounded-full bg-slate-800/80 border border-slate-700 text-slate-300">
-          <span className="text-cyan-400 font-bold">{busy.filter((r) => Number(r.avg_players) > 0).length}</span>
+        <span className="text-xs font-mono px-3 py-1 rounded-full bg-slate-100 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 shadow-xs dark:shadow-none">
+          <span className="text-cyan-700 dark:text-cyan-400 font-bold">{busy.filter((r) => Number(r.avg_players) > 0).length}</span>
           &nbsp;servers had players
         </span>
-        <span className="text-xs font-mono px-3 py-1 rounded-full bg-slate-800/80 border border-slate-700 text-slate-300">
-          <span className="text-emerald-400 font-bold">
+        <span className="text-xs font-mono px-3 py-1 rounded-full bg-slate-100 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 shadow-xs dark:shadow-none">
+          <span className="text-emerald-700 dark:text-emerald-400 font-bold">
             {ping.length > 0 ? Number(ping[0].avg_ping).toFixed(0) : '—'}
           </span>
           &nbsp;ms best avg ping

@@ -66,9 +66,9 @@ export function ServerDetailModal({
     >
       <div className="space-y-5">
         {/* Top Status Banner */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 p-4 rounded-xl bg-slate-950/70 border border-slate-800 font-mono text-xs">
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 p-4 rounded-xl bg-slate-50 dark:bg-slate-950/70 border border-slate-200 dark:border-slate-800 font-mono text-xs shadow-xs dark:shadow-none">
           <div>
-            <span className="text-slate-400 block text-[10px]">HEALTH STATUS</span>
+            <span className="text-slate-500 dark:text-slate-400 block text-[10px]">HEALTH STATUS</span>
             <div className="mt-1">
               <Badge variant={isOnline ? 'emerald' : 'rose'} dot size="sm">
                 {isOnline ? 'ONLINE' : 'OFFLINE'}
@@ -77,22 +77,22 @@ export function ServerDetailModal({
           </div>
 
           <div>
-            <span className="text-slate-400 block text-[10px]">AVG LATENCY</span>
-            <span className="text-sm font-bold text-cyan-400 mt-1 block">
+            <span className="text-slate-500 dark:text-slate-400 block text-[10px]">AVG LATENCY</span>
+            <span className="text-sm font-bold text-cyan-700 dark:text-cyan-400 mt-1 block">
               {formatPing(server.ping_ms)}
             </span>
           </div>
 
           <div>
-            <span className="text-slate-400 block text-[10px]">PLAYER CAPACITY</span>
-            <span className="text-sm font-bold text-violet-400 mt-1 block">
+            <span className="text-slate-500 dark:text-slate-400 block text-[10px]">PLAYER CAPACITY</span>
+            <span className="text-sm font-bold text-violet-700 dark:text-violet-400 mt-1 block">
               {server.player_count ?? (isOnline ? 18 : 0)} / {server.max_players || 24} slots
             </span>
           </div>
 
           <div>
-            <span className="text-slate-400 block text-[10px]">TICK RATE / MAP</span>
-            <span className="text-sm font-bold text-slate-200 mt-1 block">
+            <span className="text-slate-500 dark:text-slate-400 block text-[10px]">TICK RATE / MAP</span>
+            <span className="text-sm font-bold text-slate-800 dark:text-slate-200 mt-1 block">
               128 T / {server.map || 'de_mirage'}
             </span>
           </div>
@@ -100,25 +100,25 @@ export function ServerDetailModal({
 
         {/* Action feedback banner */}
         {actionStatus && (
-          <div className="p-3 rounded-lg bg-cyan-950/80 border border-cyan-500/50 text-cyan-300 font-mono text-xs flex items-center gap-2 animate-fade-in">
-            <CheckCircle2 className="w-4 h-4 text-cyan-400" />
+          <div className="p-3 rounded-lg bg-cyan-50 dark:bg-cyan-950/80 border border-cyan-200 dark:border-cyan-500/50 text-cyan-800 dark:text-cyan-300 font-mono text-xs flex items-center gap-2 animate-fade-in shadow-xs dark:shadow-none">
+            <CheckCircle2 className="w-4 h-4 text-cyan-600 dark:text-cyan-400" />
             {actionStatus}
           </div>
         )}
 
         {/* Mini Chart */}
-        <div className="p-4 rounded-xl bg-slate-950/70 border border-slate-800">
+        <div className="p-4 rounded-xl bg-slate-50 dark:bg-slate-950/70 border border-slate-200 dark:border-slate-800 shadow-xs dark:shadow-none">
           <div className="flex items-center justify-between mb-3">
-            <h4 className="text-xs font-mono font-bold text-slate-300 uppercase tracking-wider flex items-center gap-2">
-              <Activity className="w-4 h-4 text-cyan-400" />
+            <h4 className="text-xs font-mono font-bold text-slate-800 dark:text-slate-300 uppercase tracking-wider flex items-center gap-2">
+              <Activity className="w-4 h-4 text-cyan-600 dark:text-cyan-400" />
               Real-time Latency (ms) History
             </h4>
-            <span className="text-[11px] font-mono text-slate-400">Past 30 data points</span>
+            <span className="text-[11px] font-mono text-slate-500 dark:text-slate-400">Past 30 data points</span>
           </div>
 
           <div className="h-44 min-h-[176px] w-full">
             {chartData.length === 0 ? (
-              <div className="h-full flex items-center justify-center text-slate-400 font-mono text-xs p-4 border border-dashed border-slate-800 rounded-lg">
+              <div className="h-full flex items-center justify-center text-slate-500 dark:text-slate-400 font-mono text-xs p-4 border border-dashed border-slate-200 dark:border-slate-800 rounded-lg">
                 {loadingMetrics ? 'Loading telemetry...' : 'No historical metrics recorded for this server.'}
               </div>
             ) : (
@@ -132,16 +132,17 @@ export function ServerDetailModal({
                   </defs>
                   <XAxis
                     dataKey="timeFormatted"
-                    stroke="#475569"
+                    stroke="#94a3b8"
                     tick={{ fontSize: 10, fill: '#64748b' }}
                   />
-                  <YAxis stroke="#475569" tick={{ fontSize: 10, fill: '#64748b' }} unit="ms" />
+                  <YAxis stroke="#94a3b8" tick={{ fontSize: 10, fill: '#64748b' }} unit="ms" />
                   <Tooltip
                     contentStyle={{
-                      backgroundColor: '#020617',
-                      borderColor: '#334155',
+                      backgroundColor: '#ffffff',
+                      borderColor: '#cbd5e1',
                       borderRadius: '8px',
                       fontSize: '12px',
+                      color: '#0f172a',
                     }}
                   />
                   <Area
@@ -159,14 +160,14 @@ export function ServerDetailModal({
         </div>
 
         {/* Server Specific Logs */}
-        <div className="p-4 rounded-xl bg-slate-950/70 border border-slate-800">
-          <h4 className="text-xs font-mono font-bold text-slate-300 uppercase tracking-wider mb-3 flex items-center gap-2">
-            <Terminal className="w-4 h-4 text-rose-400" />
+        <div className="p-4 rounded-xl bg-slate-50 dark:bg-slate-950/70 border border-slate-200 dark:border-slate-800 shadow-xs dark:shadow-none">
+          <h4 className="text-xs font-mono font-bold text-slate-800 dark:text-slate-300 uppercase tracking-wider mb-3 flex items-center gap-2">
+            <Terminal className="w-4 h-4 text-rose-600 dark:text-rose-400" />
             Server Incident Log History
           </h4>
 
           {serverEvents.length === 0 ? (
-            <p className="text-xs font-mono text-slate-400">
+            <p className="text-xs font-mono text-slate-500 dark:text-slate-400">
               No recent anomalies or crashes recorded for this server instance.
             </p>
           ) : (
@@ -176,20 +177,20 @@ export function ServerDetailModal({
                 return (
                   <div
                     key={evt.id || evt.time}
-                    className="p-2.5 rounded-lg bg-slate-900/90 border border-slate-800 flex items-start justify-between gap-3 text-xs"
+                    className="p-2.5 rounded-lg bg-white dark:bg-slate-900/90 border border-slate-200 dark:border-slate-800 flex items-start justify-between gap-3 text-xs shadow-xs dark:shadow-none"
                   >
                     <div className="space-y-1">
                       <div className="flex items-center gap-2">
                         <Badge variant={badge.variant} size="sm">
                           {badge.label}
                         </Badge>
-                        <span className="text-[11px] font-mono text-slate-400">
+                        <span className="text-[11px] font-mono text-slate-500 dark:text-slate-400">
                           {formatTime(evt.time)}
                         </span>
                       </div>
-                      <p className="text-slate-300 font-sans">{evt.message}</p>
+                      <p className="text-slate-700 dark:text-slate-300 font-sans">{evt.message}</p>
                     </div>
-                    <span className="text-[11px] font-mono text-slate-400 whitespace-nowrap">
+                    <span className="text-[11px] font-mono text-slate-500 dark:text-slate-400 whitespace-nowrap">
                       {formatRelativeTime(evt.time)}
                     </span>
                   </div>
@@ -200,7 +201,7 @@ export function ServerDetailModal({
         </div>
 
         {/* Operational Actions */}
-        <div className="flex flex-wrap items-center justify-between gap-3 pt-3 border-t border-slate-800">
+        <div className="flex flex-wrap items-center justify-between gap-3 pt-3 border-t border-slate-200 dark:border-slate-800">
           <div className="flex items-center gap-2">
             <Button
               variant="outline"

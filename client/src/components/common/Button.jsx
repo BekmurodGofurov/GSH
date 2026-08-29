@@ -14,17 +14,17 @@ export function Button({
 }) {
   const variants = {
     primary:
-      'bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-semibold shadow-glow hover:shadow-cyan-500/30 border border-cyan-400/50',
+      'bg-cyan-600 hover:bg-cyan-500 text-white dark:bg-cyan-500 dark:hover:bg-cyan-400 dark:text-slate-950 font-semibold shadow-xs dark:shadow-glow hover:shadow-cyan-500/20 border border-cyan-600 dark:border-cyan-400/50',
     secondary:
-      'bg-violet-600 hover:bg-violet-500 text-white font-medium shadow-glow-violet border border-violet-500/50',
+      'bg-violet-600 hover:bg-violet-500 text-white font-medium shadow-xs dark:shadow-glow-violet border border-violet-500/50',
     outline:
-      'bg-slate-800/60 hover:bg-slate-700/80 text-slate-200 border border-slate-700 hover:border-cyan-500/50',
+      'bg-white dark:bg-slate-800/60 hover:bg-slate-50 dark:hover:bg-slate-700/80 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 hover:border-cyan-400 dark:hover:border-cyan-500/50 shadow-xs dark:shadow-none',
     ghost:
-      'bg-transparent hover:bg-slate-800/60 text-slate-300 hover:text-slate-100 border border-transparent',
+      'bg-transparent hover:bg-slate-100 dark:hover:bg-slate-800/60 text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-slate-100 border border-transparent',
     danger:
-      'bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 hover:text-rose-200 border border-rose-500/40 shadow-glow-rose',
+      'bg-rose-50 hover:bg-rose-100 text-rose-700 border-rose-200 dark:bg-rose-500/20 dark:hover:bg-rose-500/30 dark:text-rose-300 dark:border-rose-500/40 dark:shadow-glow-rose',
     emerald:
-      'bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 hover:text-emerald-200 border border-emerald-500/40 shadow-glow-emerald',
+      'bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border-emerald-200 dark:bg-emerald-500/20 dark:hover:bg-emerald-500/30 dark:text-emerald-300 dark:border-emerald-500/40 dark:shadow-glow-emerald',
   };
 
   const sizes = {

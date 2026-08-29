@@ -8,19 +8,19 @@ export function formatPing(ping) {
 export function getPingColorClass(ping) {
   if (ping === undefined || ping === null) return 'text-slate-400';
   const num = typeof ping === 'number' ? ping : parseFloat(ping);
-  if (num < 30) return 'text-emerald-400';
-  if (num < 75) return 'text-cyan-400';
-  if (num < 130) return 'text-amber-400';
-  return 'text-rose-400';
+  if (num < 30) return 'text-emerald-600 dark:text-emerald-400';
+  if (num < 75) return 'text-cyan-700 dark:text-cyan-400';
+  if (num < 130) return 'text-amber-700 dark:text-amber-400';
+  return 'text-rose-700 dark:text-rose-400';
 }
 
 export function getPingBadgeColor(ping) {
-  if (ping === undefined || ping === null) return 'bg-slate-800 text-slate-400 border-slate-700';
+  if (ping === undefined || ping === null) return 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border-slate-200 dark:border-slate-700';
   const num = typeof ping === 'number' ? ping : parseFloat(ping);
-  if (num < 30) return 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30';
-  if (num < 75) return 'bg-cyan-500/10 text-cyan-400 border-cyan-500/30';
-  if (num < 130) return 'bg-amber-500/10 text-amber-400 border-amber-500/30';
-  return 'bg-rose-500/10 text-rose-400 border-rose-500/30';
+  if (num < 30) return 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-500/10 dark:text-emerald-400 dark:border-emerald-500/30';
+  if (num < 75) return 'bg-cyan-50 text-cyan-700 border-cyan-200 dark:bg-cyan-500/10 dark:text-cyan-400 dark:border-cyan-500/30';
+  if (num < 130) return 'bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-500/10 dark:text-amber-400 dark:border-amber-500/30';
+  return 'bg-rose-50 text-rose-700 border-rose-200 dark:bg-rose-500/10 dark:text-rose-400 dark:border-rose-500/30';
 }
 
 export function formatTime(timeStr) {

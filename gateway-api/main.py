@@ -192,6 +192,8 @@ async def get_daily_ping():
         """)
         return [dict(r) for r in rows]
 
+PAGE_SIZE = 9  # Used by client for display slicing only
+
 # --- REALTIME WEBSOCKET ---
 
 @app.websocket("/ws/live")
@@ -201,11 +203,12 @@ async def websocket_endpoint(websocket: WebSocket):
         while True:
             async with db_pool.acquire() as conn:
                 servers = await conn.fetch(LATEST_SERVERS_QUERY)
-                events = await conn.fetch("SELECT * FROM server_events ORDER BY time DESC LIMIT 5;")
-                
+                events = await conn.fetch(
+                    "SELECT * FROM server_events ORDER BY time DESC LIMIT 5;"
+                )
                 payload = {
                     "servers": [dict(s) for s in servers],
-                    "events": [dict(e) for e in events]
+                    "events": [dict(e) for e in events],
                 }
                 await websocket.send_json(jsonable_encoder(payload))
             await asyncio.sleep(3)
