@@ -76,6 +76,18 @@ services:
         condition: service_healthy
     restart: unless-stopped
 
+  root-cause-ml:
+    build: ./root-cause-ml
+    container_name: gsh-root-cause-ml
+    ports:
+      - "8003:8003"
+    environment:
+      DB_URL: "postgresql://postgres:postgrespassword@timescaledb:5432/game_monitor"
+    depends_on:
+      timescaledb:
+        condition: service_healthy
+    restart: unless-stopped
+
   anomaly-bridge:
     build: ./anomaly-detection-ml
     container_name: gsh-anomaly-bridge
@@ -83,10 +95,13 @@ services:
     environment:
       DB_URL: "postgresql://postgres:postgrespassword@timescaledb:5432/game_monitor"
       ANOMALY_API_URL: "http://anomaly-detection-ml:8002/predict/anomaly"
+      ROOT_CAUSE_API_URL: "http://root-cause-ml:8003/predict/root-cause"
     depends_on:
       timescaledb:
         condition: service_healthy
       anomaly-detection-ml:
+        condition: service_started
+      root-cause-ml:
         condition: service_started
     restart: unless-stopped
 

@@ -14,12 +14,18 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from shared_schemas.models import ServerMetric
 
 # Schema for registering a new server
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 class ServerCreate(BaseModel):
     server_id: str   # Format: "188.212.101.109:27015"
     server_name: str
     region: str      # "Vienna", "Warsaw", "EU-East"
+
+class EventLabelRequest(BaseModel):
+    root_cause: str = Field(
+        ...,
+        description="SERVER_CRASH, HIGH_LATENCY, DDOS_ATTACK, REGIONAL_OUTAGE, PLAYER_DROP, MAINTENANCE"
+    )
 
 DB_URL = os.getenv("DB_URL", "postgresql://postgres:postgrespassword@localhost:5433/game_monitor")
 db_pool = None
@@ -71,6 +77,8 @@ LATEST_SERVERS_QUERY = """
 
 # --- SERVER MANAGEMENT (ADMIN / CLIENT) ---
 
+
+
 @app.post("/api/v1/servers", status_code=201)
 async def add_monitored_server(data: ServerCreate):
     """Add or update a monitored CS2 server via Admin or Frontend"""
@@ -104,10 +112,11 @@ async def get_server_metrics(server_id: str, limit: int = Query(30, ge=5, le=300
         return [dict(r) for r in rows]
 
 @app.get("/api/v1/events")
-async def get_events(limit: int = Query(20, ge=1, le=100)):
+async def get_events(limit: int = Query(50, ge=1, le=200)):
     async with db_pool.acquire() as conn:
         rows = await conn.fetch("""
-            SELECT id, time, server_id, event_type, message
+            SELECT id, time, server_id, event_type, root_cause, label_source, message,
+                   anomaly_score, anomaly_reasons, diagnosis
             FROM server_events
             ORDER BY time DESC
             LIMIT $1;
@@ -214,3 +223,16 @@ async def websocket_endpoint(websocket: WebSocket):
             await asyncio.sleep(3)
     except WebSocketDisconnect:
         pass
+
+@app.post("/api/v1/events/{event_id}/label")
+async def update_event_label(event_id: int, payload: EventLabelRequest):
+    """Update or verify the root cause label of an incident (Active Learning)."""
+    async with db_pool.acquire() as conn:
+        result = await conn.execute("""
+            UPDATE server_events
+            SET root_cause = $1, label_source = 'manual'
+            WHERE id = $2;
+        """, payload.root_cause, event_id)
+        if result == "UPDATE 0":
+            raise HTTPException(status_code=404, detail="Incident not found")
+    return {"status": "success", "event_id": event_id, "root_cause": payload.root_cause, "label_source": "manual"}
