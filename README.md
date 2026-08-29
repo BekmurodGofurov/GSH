@@ -2,7 +2,7 @@
 
 Real-time monitoring and anomaly detection platform for multiplayer game servers. It collects live server status, player counts, latency (ping), and events, stores time-series data in TimescaleDB, streams metrics via Redis Streams, and provides a real-time React dashboard.
 
-> **Current status:** The live CS2 ingestion pipeline directly queries 28 real game servers (Vienna, Warsaw, EU-East) via Valve's UDP A2S protocol, stores metrics in TimescaleDB, publishes to Redis Streams, and streams live updates to the React dashboard via FastAPI WebSockets. Dota 2 / PUBG pollers and ML anomaly detection services are in active development.
+> **Current status:** The live CS2 ingestion pipeline directly queries 28 real game servers (Vienna, Warsaw, EU-East) via Valve's UDP A2S protocol, stores metrics in TimescaleDB, publishes to Redis Streams, and streams live updates to the React dashboard via FastAPI WebSockets. The ML anomaly detection (Z-Score baseline) and Telegram alerting services are implemented. Root-Cause ML and Dota 2 / PUBG pollers are in active development.
 
 ---
 
@@ -32,7 +32,7 @@ Real-time monitoring and anomaly detection platform for multiplayer game servers
     [Gateway API]        [ML Services (Planned)]
     (REST + /ws/live)           │
           │                     ▼
-          ▼             [Alerting Service (Planned)] ──► Discord
+          ▼             [Alerting Service] ──► Telegram
   [React Dashboard]
 ```
 
@@ -79,14 +79,17 @@ Real-time monitoring and anomaly detection platform for multiplayer game servers
 │   ├── schemas.py              # Ingestion-specific Pydantic schemas
 │   ├── Dockerfile
 │   └── requirements.txt
-├── anomaly-detection-ml/       # ML Anomaly Detection Service (In Development)
+├── anomaly-detection-ml/       # ML Anomaly Detection Service (Baseline implemented)
 │   ├── main.py
+│   ├── bridge.py
 │   └── Dockerfile
 ├── root-cause-ml/              # ML Root-Cause Classifier Service (In Development)
 │   ├── main.py
 │   └── Dockerfile
-├── alerting-service/           # Alerting & Discord webhook service (In Development)
+├── alerting-service/           # Telegram Alerting & Reporting service
 │   ├── main.py
+│   ├── scheduler.py
+│   ├── reports.py
 │   └── Dockerfile
 └── client/                     # React + Vite Dashboard
     ├── src/
@@ -178,8 +181,8 @@ docker compose down
 - [x] Redis Streams publishing (`server_metrics_stream`)
 - [x] Real-time FastAPI WebSocket gateway
 - [x] Full-featured React dashboard with live charts and filters
-- [ ] Anomaly Detection Service (Rolling Z-Score / Isolation Forest)
+- [x] Anomaly Detection Service (Rolling Z-Score Baseline)
 - [ ] Root-Cause Classification Service (Rules & ML classification)
-- [ ] Discord Webhook Alerting Service with incident deduplication
+- [x] Telegram Bot Alerting Service with scheduled reports
 - [ ] Dota 2 (OpenDota / Steam API) live ingestion
 - [ ] PUBG API rate-limited shard polling
