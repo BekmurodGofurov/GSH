@@ -2,6 +2,7 @@ services:
   timescaledb:
     image: timescale/timescaledb:latest-pg15
     container_name: gsh-timescaledb
+    command: postgres -c max_connections=100 -c shared_buffers=256MB
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgrespassword
