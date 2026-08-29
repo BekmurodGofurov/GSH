@@ -51,11 +51,49 @@ export function useServerData() {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [justReconnected, setJustReconnected] = useState(false);
 
+  const [dailyInsights, setDailyInsights] = useState({ restarts: [], busy: [], ping: [], loading: false });
+
   // Filters
   const [searchQuery, setSearchQuery] = useState('');
   const [regionFilter, setRegionFilter] = useState('ALL');
   const [statusFilter, setStatusFilter] = useState('ALL');
   const [timeRange, setTimeRange] = useState('30');
+
+  // Client-side pagination (per view)
+  const [overviewPage, setOverviewPage] = useState(1);
+  const [fleetPage, setFleetPage] = useState(1);
+
+  // Live Toast Notifications state
+  const [notifications, setNotifications] = useState([]);
+  const isHydratedRef = useRef(false);
+  const serversRef = useRef(servers);
+
+  useEffect(() => {
+    serversRef.current = servers;
+  }, [servers]);
+
+  const addNotification = useCallback((event) => {
+    const serverObj = serversRef.current.find((s) => s.server_id === event.server_id);
+    const newToast = {
+      id: event.id || `${Date.now()}-${Math.random()}`,
+      event_type: event.event_type,
+      server_id: event.server_id,
+      server_name: serverObj ? serverObj.server_name : event.server_id,
+      region: serverObj ? serverObj.region : '',
+      message: event.message,
+      time: event.time,
+      createdAt: Date.now(),
+    };
+
+    setNotifications((prev) => {
+      // Keep max 4 toasts at once, prepend latest
+      return [newToast, ...prev.filter((t) => t.id !== newToast.id)].slice(0, 4);
+    });
+  }, []);
+
+  const dismissNotification = useCallback((id) => {
+    setNotifications((prev) => prev.filter((t) => t.id !== id));
+  }, []);
 
   const audio = useAudioAlert();
   const wasOfflineRef = useRef(false);
@@ -121,6 +159,11 @@ export function useServerData() {
           const fresh = payload.events.filter((e) => !existingIds.has(e.id));
           if (fresh.length > 0) {
             audio.triggerAlert(fresh[0].event_type);
+            if (isHydratedRef.current) {
+              fresh.forEach((ev) => {
+                addNotification(ev);
+              });
+            }
             newEvents = [...fresh, ...prev].slice(0, 50);
             return newEvents;
           }
@@ -128,9 +171,12 @@ export function useServerData() {
         });
       }
 
+      // Mark hydrated after processing first payload
+      isHydratedRef.current = true;
+
       syncToStorage({ servers: newServers, events: newEvents });
     },
-    [audio, syncToStorage]
+    [audio, addNotification, syncToStorage]
   );
 
   // Fetch full REST data
@@ -174,6 +220,26 @@ export function useServerData() {
     }
   }, [syncToStorage]);
 
+  // Fetch the 3 daily insights datasets in parallel
+  const fetchDailyInsights = useCallback(async () => {
+    setDailyInsights((prev) => ({ ...prev, loading: true }));
+    try {
+      const [restartsRes, busyRes, pingRes] = await Promise.all([
+        api.getDailyRestarts(),
+        api.getDailyBusy(),
+        api.getDailyPing(),
+      ]);
+      setDailyInsights({
+        restarts: restartsRes.data || [],
+        busy: busyRes.data || [],
+        ping: pingRes.data || [],
+        loading: false,
+      });
+    } catch {
+      setDailyInsights((prev) => ({ ...prev, loading: false }));
+    }
+  }, []);
+
   // Handle WebSocket reconnection
   const handleWsOpen = useCallback(() => {
     if (wasOfflineRef.current) {
@@ -190,6 +256,7 @@ export function useServerData() {
     isOffline,
     retryCountdown,
     reconnect: reconnectWs,
+    sendMessage: wsSend,
   } = useWebSocket(undefined, {
     onMessage: handleWsMessage,
     onOpen: handleWsOpen,
@@ -221,7 +288,8 @@ export function useServerData() {
   // Initial load
   useEffect(() => {
     fetchData();
-  }, [fetchData]);
+    fetchDailyInsights();
+  }, [fetchData, fetchDailyInsights]);
 
   // Load metrics when activeServerId or timeRange changes
   useEffect(() => {
@@ -304,6 +372,54 @@ export function useServerData() {
     };
   }, [servers]);
 
+  // ─── Client-side pagination helpers ──────────────────────────────────────────
+  const [overviewPageSize, setOverviewPageSize] = useState(3); // default 3 servers (1 row)
+  const PAGE_SIZE_FLEET = 9;
+
+  // Overview page — paginates filteredServers according to overviewPageSize
+  const overviewTotalPages = useMemo(
+    () => Math.max(1, Math.ceil(filteredServers.length / overviewPageSize)),
+    [filteredServers, overviewPageSize]
+  );
+  // Clamp page if filters reduce total pages
+  const safeOverviewPage = Math.min(overviewPage, overviewTotalPages);
+
+  const paginatedOverview = useMemo(() => {
+    const start = (safeOverviewPage - 1) * overviewPageSize;
+    return filteredServers.slice(start, start + overviewPageSize);
+  }, [filteredServers, safeOverviewPage, overviewPageSize]);
+
+  const goToOverviewPage = useCallback((page) => {
+    setOverviewPage(Math.max(1, page));
+  }, []);
+
+  const changeOverviewPageSize = useCallback((newSize) => {
+    setOverviewPageSize(newSize);
+    setOverviewPage(1);
+  }, []);
+
+  // Fleet page — paginates filteredServers (shared filters)
+  const fleetTotalPages = useMemo(
+    () => Math.max(1, Math.ceil(filteredServers.length / PAGE_SIZE_FLEET)),
+    [filteredServers]
+  );
+  const safeFleetPage = Math.min(fleetPage, fleetTotalPages);
+
+  const paginatedFleet = useMemo(() => {
+    const start = (safeFleetPage - 1) * PAGE_SIZE_FLEET;
+    return filteredServers.slice(start, start + PAGE_SIZE_FLEET);
+  }, [filteredServers, safeFleetPage]);
+
+  const goToFleetPage = useCallback((page) => {
+    setFleetPage(Math.max(1, page));
+  }, []);
+
+  // Reset overview page to 1 when filters change
+  useEffect(() => {
+    setOverviewPage(1);
+    setFleetPage(1);
+  }, [searchQuery, regionFilter, statusFilter]);
+
   return {
     servers,
     filteredServers,
@@ -338,5 +454,40 @@ export function useServerData() {
     },
     refreshData: () => fetchData(true),
     audio,
+    dailyInsights,
+    refreshInsights: fetchDailyInsights,
+    // Live Toast Notifications
+    notifications,
+    dismissNotification,
+    triggerTestNotification: (type = 'CRASH') => {
+      audio.triggerAlert(type);
+      const mockEvent = {
+        id: `test-${Date.now()}`,
+        event_type: type,
+        server_id: servers[0]?.server_id || '54.36.173.60:28029',
+        message:
+          type === 'CRASH'
+            ? 'Server heartbeat lost. Process crashed or unresponsive.'
+            : type === 'HIGH_PING'
+            ? 'Latency spike: Average ping elevated to 245.6ms.'
+            : type === 'OFFLINE'
+            ? 'Server dropped connection and transitioned to OFFLINE.'
+            : 'Server connection restored and telemetry healthy.',
+        time: new Date().toISOString(),
+      };
+      addNotification(mockEvent);
+    },
+    // Overview pagination
+    paginatedOverview,
+    overviewPage: safeOverviewPage,
+    overviewTotalPages,
+    goToOverviewPage,
+    overviewPageSize,
+    changeOverviewPageSize,
+    // Fleet pagination
+    paginatedFleet,
+    fleetPage: safeFleetPage,
+    fleetTotalPages,
+    goToFleetPage,
   };
 }

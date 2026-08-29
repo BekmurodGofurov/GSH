@@ -57,11 +57,11 @@ export function EventLogsView({ events = [], onSelectServer }) {
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h2 className="text-xl sm:text-2xl font-bold tracking-tight text-slate-100 flex items-center gap-2.5">
-            <Terminal className="w-6 h-6 text-cyan-400" />
+          <h2 className="text-xl sm:text-2xl font-bold tracking-tight text-slate-900 dark:text-slate-100 flex items-center gap-2.5">
+            <Terminal className="w-6 h-6 text-cyan-600 dark:text-cyan-400" />
             System Incident & Event Logs
           </h2>
-          <p className="text-xs text-slate-400 mt-1 font-mono">
+          <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 font-mono">
             Audit trail of game server crashes, network anomalies, and cluster recoveries.
           </p>
         </div>
@@ -78,32 +78,32 @@ export function EventLogsView({ events = [], onSelectServer }) {
 
       {/* Stats Summary Row */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-        <Card className="p-4 border-slate-800 bg-slate-900/60 font-mono">
-          <span className="text-xs text-slate-400">TOTAL EVENTS</span>
-          <p className="text-2xl font-bold text-slate-100 mt-1">{stats.total}</p>
+        <Card className="p-4 border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/60 font-mono shadow-xs dark:shadow-none">
+          <span className="text-xs text-slate-500 dark:text-slate-400">TOTAL EVENTS</span>
+          <p className="text-2xl font-bold text-slate-900 dark:text-slate-100 mt-1">{stats.total}</p>
         </Card>
-        <Card className="p-4 border-rose-500/30 bg-rose-950/10 font-mono">
-          <span className="text-xs text-rose-400 flex items-center gap-1">
+        <Card className="p-4 border-rose-200 dark:border-rose-500/30 bg-rose-50/60 dark:bg-rose-950/10 font-mono shadow-xs dark:shadow-none">
+          <span className="text-xs text-rose-700 dark:text-rose-400 flex items-center gap-1 font-bold">
             <Flame className="w-3.5 h-3.5" /> CRASHES
           </span>
-          <p className="text-2xl font-bold text-rose-400 mt-1">{stats.crashes}</p>
+          <p className="text-2xl font-bold text-rose-700 dark:text-rose-400 mt-1">{stats.crashes}</p>
         </Card>
-        <Card className="p-4 border-amber-500/30 bg-amber-950/10 font-mono">
-          <span className="text-xs text-amber-400 flex items-center gap-1">
+        <Card className="p-4 border-amber-200 dark:border-amber-500/30 bg-amber-50/60 dark:bg-amber-950/10 font-mono shadow-xs dark:shadow-none">
+          <span className="text-xs text-amber-700 dark:text-amber-400 flex items-center gap-1 font-bold">
             <AlertTriangle className="w-3.5 h-3.5" /> LATENCY SPIKES
           </span>
-          <p className="text-2xl font-bold text-amber-400 mt-1">{stats.latencySpikes}</p>
+          <p className="text-2xl font-bold text-amber-700 dark:text-amber-400 mt-1">{stats.latencySpikes}</p>
         </Card>
-        <Card className="p-4 border-emerald-500/30 bg-emerald-950/10 font-mono">
-          <span className="text-xs text-emerald-400 flex items-center gap-1">
+        <Card className="p-4 border-emerald-200 dark:border-emerald-500/30 bg-emerald-50/60 dark:bg-emerald-950/10 font-mono shadow-xs dark:shadow-none">
+          <span className="text-xs text-emerald-700 dark:text-emerald-400 flex items-center gap-1 font-bold">
             <CheckCircle2 className="w-3.5 h-3.5" /> RECOVERIES
           </span>
-          <p className="text-2xl font-bold text-emerald-400 mt-1">{stats.recoveries}</p>
+          <p className="text-2xl font-bold text-emerald-700 dark:text-emerald-400 mt-1">{stats.recoveries}</p>
         </Card>
       </div>
 
       {/* Main Table Card */}
-      <Card className="border-slate-800/80">
+      <Card className="border-slate-200/80 dark:border-slate-800/80">
         <CardHeader className="flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
           {/* Search */}
           <div className="w-full sm:w-72">
@@ -119,15 +119,15 @@ export function EventLogsView({ events = [], onSelectServer }) {
           </div>
 
           {/* Type Filters */}
-          <div className="flex flex-wrap items-center gap-1.5 rounded-lg bg-slate-950/80 border border-slate-800 p-0.5 text-xs font-mono">
+          <div className="flex flex-wrap items-center gap-1.5 rounded-lg bg-slate-100 dark:bg-slate-950/80 border border-slate-200 dark:border-slate-800 p-0.5 text-xs font-mono">
             {['ALL', 'CRASH', 'HIGH_PING', 'RECOVERY', 'WARNING'].map((type) => (
               <button
                 key={type}
                 onClick={() => setSelectedType(type)}
-                className={`px-2.5 py-1 rounded-md transition-all ${
+                className={`px-2.5 py-1 rounded-md transition-all cursor-pointer ${
                   selectedType === type
-                    ? 'bg-cyan-500/20 text-cyan-300 font-semibold border border-cyan-500/40'
-                    : 'text-slate-400 hover:text-slate-200'
+                    ? 'bg-white dark:bg-cyan-500/20 text-cyan-700 dark:text-cyan-300 font-semibold border border-slate-200 dark:border-cyan-500/40 shadow-xs'
+                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
                 }`}
               >
                 {type}
@@ -137,8 +137,8 @@ export function EventLogsView({ events = [], onSelectServer }) {
         </CardHeader>
 
         <CardContent className="p-0 overflow-x-auto">
-          <table className="w-full text-left font-mono text-xs divide-y divide-slate-800">
-            <thead className="bg-slate-950/80 text-slate-400 uppercase text-[10px] tracking-wider">
+          <table className="w-full text-left font-mono text-xs divide-y divide-slate-200 dark:divide-slate-800">
+            <thead className="bg-slate-50 dark:bg-slate-950/80 text-slate-500 dark:text-slate-400 uppercase text-[10px] tracking-wider">
               <tr>
                 <th className="p-3.5">Severity / Type</th>
                 <th className="p-3.5">Server Target</th>
@@ -147,10 +147,10 @@ export function EventLogsView({ events = [], onSelectServer }) {
                 <th className="p-3.5 text-right">Age</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-800/60 text-slate-200">
+            <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60 text-slate-700 dark:text-slate-200">
               {filtered.length === 0 ? (
                 <tr>
-                  <td colSpan={5} className="p-8 text-center text-slate-400">
+                  <td colSpan={5} className="p-8 text-center text-slate-500 dark:text-slate-400">
                     No log events match the current criteria.
                   </td>
                 </tr>
@@ -162,30 +162,30 @@ export function EventLogsView({ events = [], onSelectServer }) {
                   return (
                     <tr
                       key={evt.id || `${evt.server_id}-${evt.time}`}
-                      className={`hover:bg-slate-800/40 transition-colors ${
-                        isCrash ? 'bg-rose-950/10' : ''
+                      className={`hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors ${
+                        isCrash ? 'bg-rose-50/50 dark:bg-rose-950/10' : ''
                       }`}
                     >
                       <td className="p-3.5">
-                        <Badge variant={badge.variant} dot={isCrash} pulse={isCrash} size="sm">
+                        <Badge variant={badge.variant} size="sm">
                           {badge.label}
                         </Badge>
                       </td>
-                      <td className="p-3.5 font-bold text-slate-100 font-mono">
+                      <td className="p-3.5">
                         <button
                           onClick={() => onSelectServer && onSelectServer(evt.server_id)}
-                          className="hover:text-cyan-400 hover:underline transition-colors"
+                          className="font-bold text-slate-900 dark:text-slate-100 hover:text-cyan-600 dark:hover:text-cyan-400 hover:underline cursor-pointer"
                         >
                           {evt.server_id}
                         </button>
                       </td>
-                      <td className="p-3.5 font-sans text-xs text-slate-300 max-w-md">
+                      <td className="p-3.5 text-slate-600 dark:text-slate-300 font-sans max-w-md">
                         {evt.message}
                       </td>
-                      <td className="p-3.5 text-slate-400 text-[11px]">
+                      <td className="p-3.5 text-slate-500 dark:text-slate-400">
                         {formatTime(evt.time)}
                       </td>
-                      <td className="p-3.5 text-slate-400 text-[11px] text-right">
+                      <td className="p-3.5 text-right text-slate-500 dark:text-slate-400">
                         {formatRelativeTime(evt.time)}
                       </td>
                     </tr>

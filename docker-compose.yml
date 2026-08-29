@@ -2,6 +2,7 @@ services:
   timescaledb:
     image: timescale/timescaledb:latest-pg15
     container_name: gsh-timescaledb
+    command: postgres -c max_connections=100 -c shared_buffers=256MB
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgrespassword
@@ -87,6 +88,34 @@ services:
         condition: service_healthy
       anomaly-detection-ml:
         condition: service_started
+    restart: unless-stopped
+
+  alerting-service:
+    build:
+      context: ./alerting-service
+    container_name: gsh-alerting-service
+    environment:
+      # Barcha qiymatlar .env fayldan olinadi — hardcoded qiymat YO'Q
+      DB_URL: "${DB_URL}"
+      TELEGRAM_BOT_TOKEN: "${TELEGRAM_BOT_TOKEN}"
+      TELEGRAM_CHAT_ID: "${TELEGRAM_CHAT_ID}"
+      # --- Rejim: "interval" (test) yoki "daily" (production) ---
+      SCHEDULER_MODE: "${SCHEDULER_MODE:-interval}"
+      # Interval rejimi (test):
+      REPORT_INTERVAL_MINUTES: "${REPORT_INTERVAL_MINUTES:-5}"
+      LOOKBACK_MINUTES: "${LOOKBACK_MINUTES:-5}"
+      # Daily rejimi (production):
+      REPORT_HOUR_UTC: "${REPORT_HOUR_UTC:-9}"
+      REPORT_MINUTE_UTC: "${REPORT_MINUTE_UTC:-0}"
+      LOOKBACK_DAYS: "${LOOKBACK_DAYS:-1}"
+      # Startup da darhol bitta hisobot yuborish:
+      SEND_ON_STARTUP: "${SEND_ON_STARTUP:-false}"
+    depends_on:
+      timescaledb:
+        condition: service_healthy
+    dns:
+      - 8.8.8.8
+      - 1.1.1.1
     restart: unless-stopped
 
 volumes:

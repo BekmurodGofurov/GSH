@@ -1,0 +1,4 @@
+aiogram==3.13.1
+asyncpg==0.29.0
+apscheduler==3.10.4
+pydantic-settings==2.4.0

@@ -130,6 +130,70 @@ async def get_ping_analytics(minutes: int = Query(10, ge=1, le=60)):
         """, minutes)
         return [dict(r) for r in rows]
 
+@app.get("/api/v1/analytics/daily-restarts")
+async def get_daily_restarts():
+    """How many times each server went offline in the last 24 hours."""
+    async with db_pool.acquire() as conn:
+        rows = await conn.fetch("""
+            SELECT
+                ms.server_id,
+                ms.server_name,
+                ms.region,
+                COUNT(se.id) FILTER (WHERE se.event_type ILIKE 'OFFLINE') AS restart_count
+            FROM monitored_servers ms
+            LEFT JOIN server_events se
+                ON se.server_id = ms.server_id
+                AND se.time >= NOW() - INTERVAL '24 hours'
+            GROUP BY ms.server_id, ms.server_name, ms.region
+            ORDER BY restart_count DESC;
+        """)
+        return [dict(r) for r in rows]
+
+@app.get("/api/v1/analytics/daily-busy")
+async def get_daily_busy():
+    """Average and peak player counts per server over the last 24 hours."""
+    async with db_pool.acquire() as conn:
+        rows = await conn.fetch("""
+            SELECT
+                ms.server_id,
+                ms.server_name,
+                ms.region,
+                COALESCE(ROUND(AVG(sm.player_count)::numeric, 1), 0) AS avg_players,
+                COALESCE(MAX(sm.player_count), 0) AS peak_players,
+                COALESCE(MAX(sm.max_players), 0) AS max_slots
+            FROM monitored_servers ms
+            LEFT JOIN server_metrics sm
+                ON sm.server_id = ms.server_id
+                AND sm.time >= NOW() - INTERVAL '24 hours'
+            GROUP BY ms.server_id, ms.server_name, ms.region
+            ORDER BY avg_players DESC;
+        """)
+        return [dict(r) for r in rows]
+
+@app.get("/api/v1/analytics/daily-ping")
+async def get_daily_ping():
+    """Average and best ping per server over the last 24 hours (only servers with data)."""
+    async with db_pool.acquire() as conn:
+        rows = await conn.fetch("""
+            SELECT
+                ms.server_id,
+                ms.server_name,
+                ms.region,
+                ROUND(AVG(sm.ping_ms)::numeric, 1) AS avg_ping,
+                ROUND(MIN(sm.ping_ms)::numeric, 1) AS best_ping,
+                COUNT(sm.time) AS sample_count
+            FROM monitored_servers ms
+            JOIN server_metrics sm
+                ON sm.server_id = ms.server_id
+                AND sm.time >= NOW() - INTERVAL '24 hours'
+            GROUP BY ms.server_id, ms.server_name, ms.region
+            HAVING AVG(sm.ping_ms) IS NOT NULL
+            ORDER BY avg_ping ASC;
+        """)
+        return [dict(r) for r in rows]
+
+PAGE_SIZE = 9  # Used by client for display slicing only
+
 # --- REALTIME WEBSOCKET ---
 
 @app.websocket("/ws/live")
@@ -139,11 +203,12 @@ async def websocket_endpoint(websocket: WebSocket):
         while True:
             async with db_pool.acquire() as conn:
                 servers = await conn.fetch(LATEST_SERVERS_QUERY)
-                events = await conn.fetch("SELECT * FROM server_events ORDER BY time DESC LIMIT 5;")
-                
+                events = await conn.fetch(
+                    "SELECT * FROM server_events ORDER BY time DESC LIMIT 5;"
+                )
                 payload = {
                     "servers": [dict(s) for s in servers],
-                    "events": [dict(e) for e in events]
+                    "events": [dict(e) for e in events],
                 }
                 await websocket.send_json(jsonable_encoder(payload))
             await asyncio.sleep(3)

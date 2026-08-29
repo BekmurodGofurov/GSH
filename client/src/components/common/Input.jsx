@@ -18,7 +18,7 @@ export function Input({
       <input
         value={value}
         className={cn(
-          'w-full bg-slate-900/90 border border-slate-700/80 rounded-lg px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 transition-all outline-none focus:border-cyan-500/80 focus:ring-1 focus:ring-cyan-500/30 font-sans',
+          'w-full bg-white dark:bg-slate-900/90 border border-slate-200 dark:border-slate-700/80 rounded-lg px-3 py-2 text-sm text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500 transition-all outline-none focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500/30 font-sans shadow-xs dark:shadow-none',
           Icon && 'pl-9',
           clearable && value && 'pr-8',
           className
@@ -29,7 +29,7 @@ export function Input({
         <button
           type="button"
           onClick={onClear}
-          className="absolute right-2.5 text-slate-400 hover:text-slate-200 text-xs px-1"
+          className="absolute right-2.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 text-xs px-1 cursor-pointer"
         >
           ✕
         </button>
@@ -51,14 +51,14 @@ export function Select({
       )}
       <select
         className={cn(
-          'bg-slate-900/90 border border-slate-700/80 rounded-lg px-3 py-2 text-sm text-slate-200 outline-none focus:border-cyan-500/80 focus:ring-1 focus:ring-cyan-500/30 cursor-pointer appearance-none pr-8 font-mono',
+          'bg-white dark:bg-slate-900/90 border border-slate-200 dark:border-slate-700/80 rounded-lg px-3 py-2 text-sm text-slate-900 dark:text-slate-200 outline-none focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500/30 cursor-pointer appearance-none pr-8 font-mono shadow-xs dark:shadow-none',
           Icon && 'pl-9',
           className
         )}
         {...props}
       >
         {options.map((opt) => (
-          <option key={opt.value} value={opt.value} className="bg-slate-900 text-slate-200">
+          <option key={opt.value} value={opt.value} className="bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-200">
             {opt.label}
           </option>
         ))}
