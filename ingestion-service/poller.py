@@ -98,8 +98,8 @@ async def poll_single_server(server_row, timeout: float = 1.5):
             UPDATE monitored_servers 
             SET status = $1::varchar, 
                 server_name = $4::varchar,
-                last_online_at = CASE WHEN $1::varchar = 'ONLINE' THEN $2::timestamptz ELSE last_online_at END,
-                last_offline_at = CASE WHEN $1::varchar != 'ONLINE' AND last_online_at IS NOT NULL THEN $2::timestamptz ELSE last_offline_at END
+                last_online_at  = CASE WHEN $1::varchar = 'ONLINE'  THEN $2::timestamptz ELSE last_online_at  END,
+                last_offline_at = CASE WHEN $1::varchar = 'OFFLINE' THEN $2::timestamptz ELSE last_offline_at END
             WHERE server_id = $3::varchar;
         """, status, now, server_id, server_name)
 
