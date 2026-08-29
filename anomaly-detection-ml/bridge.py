@@ -48,7 +48,7 @@ async def send_to_anomaly_api(client: httpx.AsyncClient, payload: dict):
         response.raise_for_status()
         return response.json()
     except httpx.HTTPError as exc:
-        print(f"⚠️  Anomaly API so'rovi muvaffaqiyatsiz: {exc}")
+        print(f"⚠️  Anomaly API request failed: {exc}")
         return None
 
 
@@ -75,8 +75,8 @@ async def run_bridge():
     pool = await asyncpg.create_pool(DB_URL)
     last_seen = datetime.now(timezone.utc)
 
-    print(f"🔗 Bridge ishga tushdi. Anomaly API: {ANOMALY_API_URL}")
-    print(f"⏱️  Har {POLL_INTERVAL_SECONDS} soniyada yangi yozuvlar tekshiriladi.\n")
+    print(f"🔗 Bridge started. Anomaly API: {ANOMALY_API_URL}")
+    print(f"⏱️  Checking for new records every {POLL_INTERVAL_SECONDS} seconds.\n")
 
     async with httpx.AsyncClient() as client:
         while True:
@@ -91,19 +91,19 @@ async def run_bridge():
 
                 if result.get("is_anomaly"):
                     print(
-                        f"🚨 ANOMALIYA! server={result['server_id']} "
+                        f"🚨 ANOMALY! server={result['server_id']} "
                         f"score={result['anomaly_score']} "
-                        f"sabab={result['reasons']}"
+                        f"reasons={result['reasons']}"
                     )
 
                     event_type = classify_event_type(result["reasons"])
-                    message = "; ".join(result["reasons"]) or "Anomaliya aniqlandi"
+                    message = "; ".join(result["reasons"]) or "Anomaly detected"
                     try:
                         await record_event(
                             pool, row["time"], result["server_id"], event_type, message
                         )
                     except Exception as exc:
-                        print(f"⚠️  server_events yozishda xatolik: {exc}")
+                        print(f"⚠️  Failed to write to server_events: {exc}")
                 else:
                     print(
                         f"✅ {result['server_id']}: normal "
