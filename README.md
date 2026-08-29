@@ -139,6 +139,23 @@ To run all services inside Docker containers:
 docker compose up -d --build
 ```
 
+### Anomaly and root-cause pipeline
+
+`anomaly-bridge` sends every confirmed anomaly to `root-cause-ml` and stores
+the telemetry, anomaly score, ranked diagnosis, and primary root cause in
+`server_events`. For an existing database volume, apply the schema migration
+once before starting the updated bridge:
+
+```bash
+docker compose exec -T timescaledb psql -U postgres -d game_monitor < migrations/001_add_anomaly_evidence.sql
+```
+
+Then rebuild and start the ML services:
+
+```bash
+docker compose up -d --build root-cause-ml anomaly-detection-ml anomaly-bridge
+```
+
 - **Dashboard:** http://localhost:3000
 - **Gateway API Swagger Docs:** http://localhost:8000/docs
 - **Ingestion Service Health:** http://localhost:8001/health

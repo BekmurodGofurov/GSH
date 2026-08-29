@@ -34,6 +34,7 @@ export function EventLogsView({ events = [], onSelectServer }) {
         search === '' ||
         (e.server_id && e.server_id.toLowerCase().includes(search.toLowerCase())) ||
         (e.message && e.message.toLowerCase().includes(search.toLowerCase())) ||
+        (e.root_cause && e.root_cause.toLowerCase().includes(search.toLowerCase())) ||
         (e.event_type && e.event_type.toLowerCase().includes(search.toLowerCase()));
 
       return matchType && matchSearch;
@@ -59,10 +60,10 @@ export function EventLogsView({ events = [], onSelectServer }) {
         <div>
           <h2 className="text-xl sm:text-2xl font-bold tracking-tight text-slate-900 dark:text-slate-100 flex items-center gap-2.5">
             <Terminal className="w-6 h-6 text-cyan-600 dark:text-cyan-400" />
-            System Incident & Event Logs
+            System Incident & ML Root Cause Logs
           </h2>
           <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 font-mono">
-            Audit trail of game server crashes, network anomalies, and cluster recoveries.
+            Audit trail of game server crashes, network anomalies, and ML diagnoses.
           </p>
         </div>
 
@@ -103,9 +104,8 @@ export function EventLogsView({ events = [], onSelectServer }) {
       </div>
 
       {/* Main Table Card */}
-      <Card className="border-slate-200/80 dark:border-slate-800/80">
+      <Card className="border-slate-200 dark:border-slate-800/80">
         <CardHeader className="flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
-          {/* Search */}
           <div className="w-full sm:w-72">
             <Input
               icon={Search}
@@ -140,9 +140,9 @@ export function EventLogsView({ events = [], onSelectServer }) {
           <table className="w-full text-left font-mono text-xs divide-y divide-slate-200 dark:divide-slate-800">
             <thead className="bg-slate-50 dark:bg-slate-950/80 text-slate-500 dark:text-slate-400 uppercase text-[10px] tracking-wider">
               <tr>
-                <th className="p-3.5">Severity / Type</th>
+                <th className="p-3.5">Severity</th>
                 <th className="p-3.5">Server Target</th>
-                <th className="p-3.5">Incident Description</th>
+                <th className="p-3.5">Incident Description & ML Diagnosis</th>
                 <th className="p-3.5">Timestamp</th>
                 <th className="p-3.5 text-right">Age</th>
               </tr>
@@ -179,8 +179,18 @@ export function EventLogsView({ events = [], onSelectServer }) {
                           {evt.server_id}
                         </button>
                       </td>
-                      <td className="p-3.5 text-slate-600 dark:text-slate-300 font-sans max-w-md">
-                        {evt.message}
+                      <td className="p-3.5 font-sans text-xs text-slate-600 dark:text-slate-300 max-w-md">
+                        <p className="font-medium text-slate-900 dark:text-slate-100">{evt.message}</p>
+                        {evt.root_cause && evt.root_cause !== 'NORMAL' && (
+                          <div className="flex items-center gap-1.5 mt-1">
+                            <span className="px-1.5 py-0.5 rounded text-[10px] font-mono bg-slate-200 dark:bg-slate-800 text-cyan-700 dark:text-cyan-400 border border-slate-300 dark:border-slate-700">
+                              {evt.root_cause}
+                            </span>
+                            <span className="text-[10px] text-slate-500 font-mono">
+                              ({evt.label_source === 'manual' ? 'MANUAL' : 'AUTO-LABELED'})
+                            </span>
+                          </div>
+                        )}
                       </td>
                       <td className="p-3.5 text-slate-500 dark:text-slate-400">
                         {formatTime(evt.time)}
