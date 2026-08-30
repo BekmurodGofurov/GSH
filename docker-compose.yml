@@ -115,7 +115,7 @@ services:
       TELEGRAM_BOT_TOKEN: "${TELEGRAM_BOT_TOKEN}"
       TELEGRAM_CHAT_ID: "${TELEGRAM_CHAT_ID}"
       # --- Rejim: "interval" (test) yoki "daily" (production) ---
-      SCHEDULER_MODE: "${SCHEDULER_MODE:-interval}"
+      SCHEDULER_MODE: "${SCHEDULER_MODE:-daily}"
       # Interval rejimi (test):
       REPORT_INTERVAL_MINUTES: "${REPORT_INTERVAL_MINUTES:-5}"
       LOOKBACK_MINUTES: "${LOOKBACK_MINUTES:-5}"
