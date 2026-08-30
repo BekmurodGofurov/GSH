@@ -201,6 +201,33 @@ async def get_daily_ping():
         """)
         return [dict(r) for r in rows]
 
+from datetime import date
+@app.get("/api/v1/insights/daily")
+async def get_daily_insights(target_date: date = Query(..., description="Target date in YYYY-MM-DD format")):
+    """Get the cached daily report data for the specified date."""
+    async with db_pool.acquire() as conn:
+        # Check daily_reports
+        row = await conn.fetchrow("""
+            SELECT json_data 
+            FROM daily_reports 
+            WHERE report_date = $1
+        """, target_date)
+        
+        if row and row["json_data"]:
+            import json
+            return json.loads(row["json_data"])
+        
+        # If not found, check the oldest metric date
+        oldest_row = await conn.fetchrow("SELECT MIN(time) as oldest FROM server_metrics")
+        if oldest_row and oldest_row["oldest"]:
+            oldest_date = oldest_row["oldest"].date()
+            if target_date < oldest_date:
+                raise HTTPException(status_code=404, detail=f"No data. Collection started on {oldest_date.isoformat()}")
+            else:
+                raise HTTPException(status_code=404, detail="No report found for the requested date.")
+        else:
+            raise HTTPException(status_code=404, detail="No metric data available in the system yet.")
+
 PAGE_SIZE = 9  # Used by client for display slicing only
 
 # --- REALTIME WEBSOCKET ---

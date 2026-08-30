@@ -1,283 +1,221 @@
-import React from 'react';
-import { TrendingUp, Users, Zap, RefreshCw, AlertTriangle, CheckCircle } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { Calendar, AlertCircle } from 'lucide-react';
+import { api } from '../../services/api';
 import { Card, CardHeader, CardTitle, CardContent } from '../common/Card';
 import { Badge } from '../common/Badge';
-import { Button } from '../common/Button';
 
-// --- Utility helpers ---
-
-function shortName(name = '') {
-  // Keep name under 40 chars for display
-  return name.length > 42 ? name.slice(0, 40) + '…' : name;
-}
-
-function pingColor(ms) {
-  if (!ms || ms === 0) return 'text-slate-400';
-  if (ms < 40) return 'text-emerald-400';
-  if (ms < 80) return 'text-cyan-400';
-  if (ms < 140) return 'text-amber-400';
-  return 'text-rose-400';
-}
-
-function restartColor(count) {
-  if (count === 0) return 'text-emerald-400';
-  if (count <= 2) return 'text-amber-400';
-  return 'text-rose-400';
-}
-
-function restartBadgeVariant(count) {
-  if (count === 0) return 'emerald';
-  if (count <= 2) return 'amber';
-  return 'rose';
-}
-
-// --- Bar component for player fill ratio ---
-function FillBar({ value, max, color = 'bg-cyan-500' }) {
-  const pct = max > 0 ? Math.min(100, (value / max) * 100) : 0;
+function DashboardCard({ title, value, valueClass = '' }) {
   return (
-    <div className="w-full h-1.5 rounded-full bg-slate-100 dark:bg-slate-800 overflow-hidden">
-      <div
-        className={`h-full rounded-full ${color} transition-all duration-500`}
-        style={{ width: `${pct}%` }}
-      />
-    </div>
-  );
-}
-
-// ============================================================
-// SECTION 1 — Server Restarts Today
-// ============================================================
-function RestartsSection({ restarts, loading }) {
-  const displayed = restarts.slice(0, 15);
-
-  return (
-    <Card className="border-slate-200/80 dark:border-slate-800/80">
-      <CardHeader>
-        <CardTitle icon={AlertTriangle}>Server Restarts (Last 24h)</CardTitle>
-        <span className="text-xs text-slate-500 dark:text-slate-400 font-mono">
-          Offline events from <code>server_events</code>
-        </span>
-      </CardHeader>
-      <CardContent className="p-0">
-        {loading ? (
-          <div className="flex items-center justify-center h-28 text-slate-400 text-sm">Loading…</div>
-        ) : displayed.length === 0 ? (
-          <div className="flex items-center justify-center h-28 text-slate-400 text-sm">No data yet</div>
-        ) : (
-          <div className="divide-y divide-slate-100 dark:divide-slate-800/60">
-            {displayed.map((row, i) => {
-              const count = Number(row.restart_count) || 0;
-              return (
-                <div
-                  key={row.server_id}
-                  className="flex items-center justify-between px-5 py-3 hover:bg-slate-50 dark:hover:bg-slate-800/30 transition-colors"
-                >
-                  {/* Rank + Name */}
-                  <div className="flex items-center gap-3 min-w-0">
-                    <span className="text-[11px] font-mono text-slate-400 dark:text-slate-500 w-5 text-right shrink-0">
-                      {i + 1}
-                    </span>
-                    <div className="min-w-0">
-                      <p className="text-sm font-medium text-slate-900 dark:text-slate-100 truncate leading-tight">
-                        {shortName(row.server_name)}
-                      </p>
-                      <p className="text-[11px] text-slate-500 dark:text-slate-400 font-mono mt-0.5">{row.region}</p>
-                    </div>
-                  </div>
-
-                  {/* Count badge */}
-                  <div className="flex items-center gap-2 shrink-0 ml-4">
-                    {count === 0 ? (
-                      <CheckCircle className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
-                    ) : (
-                      <AlertTriangle className={`w-3.5 h-3.5 ${restartColor(count)}`} />
-                    )}
-                    <Badge variant={restartBadgeVariant(count)} size="sm" className="font-mono font-bold w-10 text-center">
-                      {count}x
-                    </Badge>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        )}
-      </CardContent>
+    <Card className="flex flex-col items-center justify-center p-6 text-center border-slate-200/80 dark:border-slate-800/80 bg-white dark:bg-slate-900 shadow-sm">
+      <h3 className="text-xs sm:text-sm font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-2">
+        {title}
+      </h3>
+      <div className={`text-2xl sm:text-4xl font-extrabold font-mono ${valueClass}`}>
+        {value}
+      </div>
     </Card>
   );
 }
 
-// ============================================================
-// SECTION 2 — Busiest Servers
-// ============================================================
-function BusySection({ busy, loading }) {
-  const displayed = busy.filter((r) => Number(r.avg_players) > 0).slice(0, 12);
-  const maxAvg = displayed.length > 0 ? Math.max(...displayed.map((r) => Number(r.avg_players))) : 1;
+function ServerReportCard({ server }) {
+  const offlineCount = server.offline_count || 0;
+  const crashClass = offlineCount > 0 ? 'text-rose-500' : 'text-emerald-500';
+  const pingClass = server.max_ping > 150 ? 'text-rose-500' : 'text-emerald-500';
 
   return (
-    <Card className="border-slate-200/80 dark:border-slate-800/80">
-      <CardHeader>
-        <CardTitle icon={Users}>Busiest Servers (Last 24h)</CardTitle>
-        <span className="text-xs text-slate-500 dark:text-slate-400 font-mono">
-          Avg &amp; peak from <code>server_metrics</code>
-        </span>
-      </CardHeader>
-      <CardContent className="p-0">
-        {loading ? (
-          <div className="flex items-center justify-center h-28 text-slate-400 text-sm">Loading…</div>
-        ) : displayed.length === 0 ? (
-          <div className="flex items-center justify-center h-28 text-slate-400 text-sm">No player data yet</div>
-        ) : (
-          <div className="divide-y divide-slate-100 dark:divide-slate-800/60">
-            {displayed.map((row, i) => {
-              const avg = Number(row.avg_players) || 0;
-              const peak = Number(row.peak_players) || 0;
-              const slots = Number(row.max_slots) || 20;
-              return (
-                <div key={row.server_id} className="px-5 py-3 hover:bg-slate-50 dark:hover:bg-slate-800/30 transition-colors">
-                  <div className="flex items-center justify-between mb-1.5">
-                    <div className="flex items-center gap-3 min-w-0">
-                      <span className="text-[11px] font-mono text-slate-400 dark:text-slate-500 w-5 text-right shrink-0">{i + 1}</span>
-                      <div className="min-w-0">
-                        <p className="text-sm font-medium text-slate-900 dark:text-slate-100 truncate leading-tight">
-                          {shortName(row.server_name)}
-                        </p>
-                        <p className="text-[11px] text-slate-500 dark:text-slate-400 font-mono mt-0.5">{row.region}</p>
-                      </div>
-                    </div>
-                    <div className="text-right shrink-0 ml-4">
-                      <p className="text-sm font-bold text-cyan-700 dark:text-cyan-400 font-mono">{avg.toFixed(1)}</p>
-                      <p className="text-[10px] text-slate-500 dark:text-slate-400">avg / {peak} peak</p>
-                    </div>
-                  </div>
-                  <div className="pl-8">
-                    <FillBar value={avg} max={slots} color="bg-cyan-500" />
-                  </div>
-                </div>
-              );
-            })}
+    <Card className="border-slate-200/80 dark:border-slate-800/80 bg-white dark:bg-slate-900 shadow-sm flex flex-col">
+      <div className="p-4 border-b border-slate-100 dark:border-slate-800 flex justify-between items-start">
+        <div className="min-w-0 pr-2">
+          <h2 className="text-sm font-bold text-slate-800 dark:text-slate-100 truncate" title={server.server_name}>
+            {server.server_name}
+          </h2>
+          <div className="text-xs font-mono text-slate-500 dark:text-slate-400 mt-1">
+            {server.server_id}
           </div>
-        )}
-      </CardContent>
+        </div>
+        <Badge variant="neutral" className="shrink-0">{server.region}</Badge>
+      </div>
+      <div className="p-4 flex-1 flex flex-col justify-center space-y-3 font-mono text-sm">
+        <div className="flex justify-between items-center">
+          <span className="text-slate-500 dark:text-slate-400">Crash / Offline Events</span>
+          <span className={`font-bold ${crashClass}`}>{offlineCount}</span>
+        </div>
+        <div className="flex justify-between items-center">
+          <span className="text-slate-500 dark:text-slate-400">Highest Ping</span>
+          <span className={`font-bold ${pingClass}`}>
+            {server.max_ping} ms <span className="text-xs text-slate-400 dark:text-slate-500 ml-1">@ {server.max_ping_time || '-'}</span>
+          </span>
+        </div>
+        <div className="flex justify-between items-center">
+          <span className="text-slate-500 dark:text-slate-400">Lowest Ping</span>
+          <span className="font-bold text-emerald-500">{server.min_ping} ms</span>
+        </div>
+        <div className="flex justify-between items-center">
+          <span className="text-slate-500 dark:text-slate-400">Max Players</span>
+          <span className="font-bold text-slate-800 dark:text-slate-200">
+            {server.max_players} <span className="text-xs text-slate-400 dark:text-slate-500 ml-1">@ {server.max_players_time || '-'}</span>
+          </span>
+        </div>
+      </div>
     </Card>
   );
 }
 
-// ============================================================
-// SECTION 3 — Lowest Average Ping
-// ============================================================
-function PingSection({ ping, loading }) {
-  const displayed = ping.slice(0, 12);
-  const maxPing = displayed.length > 0 ? Math.max(...displayed.map((r) => Number(r.avg_ping))) : 200;
+export function InsightsView() {
+  const [dateStr, setDateStr] = useState(() => {
+    const d = new Date();
+    d.setDate(d.getDate() - 1);
+    return d.toISOString().split('T')[0];
+  });
+  
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+  
+  const [page, setPage] = useState(1);
+  const [regionFilter, setRegionFilter] = useState('ALL');
+  
+  const PAGE_SIZE = 9;
 
-  return (
-    <Card className="border-slate-200/80 dark:border-slate-800/80">
-      <CardHeader>
-        <CardTitle icon={Zap}>Lowest Avg Ping (Last 24h)</CardTitle>
-        <span className="text-xs text-slate-500 dark:text-slate-400 font-mono">
-          Daily latency from <code>server_metrics</code>
-        </span>
-      </CardHeader>
-      <CardContent className="p-0">
-        {loading ? (
-          <div className="flex items-center justify-center h-28 text-slate-400 text-sm">Loading…</div>
-        ) : displayed.length === 0 ? (
-          <div className="flex items-center justify-center h-28 text-slate-400 text-sm">No ping data yet</div>
-        ) : (
-          <div className="divide-y divide-slate-100 dark:divide-slate-800/60">
-            {displayed.map((row, i) => {
-              const avg = Number(row.avg_ping) || 0;
-              const best = Number(row.best_ping) || 0;
-              const samples = Number(row.sample_count) || 0;
-              return (
-                <div key={row.server_id} className="px-5 py-3 hover:bg-slate-50 dark:hover:bg-slate-800/30 transition-colors">
-                  <div className="flex items-center justify-between mb-1.5">
-                    <div className="flex items-center gap-3 min-w-0">
-                      <span className="text-[11px] font-mono text-slate-400 dark:text-slate-500 w-5 text-right shrink-0">{i + 1}</span>
-                      <div className="min-w-0">
-                        <p className="text-sm font-medium text-slate-900 dark:text-slate-100 truncate leading-tight">
-                          {shortName(row.server_name)}
-                        </p>
-                        <p className="text-[11px] text-slate-500 dark:text-slate-400 font-mono mt-0.5">
-                          {row.region} · {samples.toLocaleString()} samples
-                        </p>
-                      </div>
-                    </div>
-                    <div className="text-right shrink-0 ml-4">
-                      <p className={`text-sm font-bold font-mono ${pingColor(avg)}`}>{avg} ms</p>
-                      <p className="text-[10px] text-slate-500 dark:text-slate-400">best {best} ms</p>
-                    </div>
-                  </div>
-                  <div className="pl-8">
-                    {/* Inverted bar: lower ping = fuller bar */}
-                    <FillBar
-                      value={maxPing - avg}
-                      max={maxPing}
-                      color={avg < 40 ? 'bg-emerald-500' : avg < 80 ? 'bg-cyan-500' : avg < 140 ? 'bg-amber-500' : 'bg-rose-500'}
-                    />
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        )}
-      </CardContent>
-    </Card>
-  );
-}
+  useEffect(() => {
+    async function fetchData() {
+      if (!dateStr) return;
+      setLoading(true);
+      setError(null);
+      setData(null);
+      
+      const { data: resData, error: resErr } = await api.getDailyInsights(dateStr);
+      
+      if (resErr) {
+        setError(resErr);
+      } else {
+        setData(resData);
+      }
+      setLoading(false);
+      setPage(1); // Reset page on new data
+    }
+    fetchData();
+  }, [dateStr]);
 
-// ============================================================
-// MAIN InsightsView
-// ============================================================
-export function InsightsView({ dailyInsights = {}, onRefresh }) {
-  const { restarts = [], busy = [], ping = [], loading = false } = dailyInsights;
+  // Filtering
+  const allServers = data?.servers || [];
+  const regions = [...new Set(allServers.map((s) => s.region))].sort();
+  
+  const filteredServers = regionFilter === 'ALL' 
+    ? allServers 
+    : allServers.filter(s => s.region === regionFilter);
+    
+  // Pagination
+  const totalPages = Math.ceil(filteredServers.length / PAGE_SIZE) || 1;
+  const paginatedServers = filteredServers.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
 
   return (
     <div className="space-y-6">
-      {/* Page Header */}
-      <div className="flex items-start justify-between">
+      {/* Header & Controls */}
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
         <div>
           <h2 className="text-xl sm:text-2xl font-bold tracking-tight text-slate-900 dark:text-slate-100 flex items-center gap-2.5">
-            <TrendingUp className="w-6 h-6 text-cyan-600 dark:text-cyan-400" />
-            Daily Server Insights
+            <Calendar className="w-6 h-6 text-violet-600 dark:text-violet-400" />
+            Daily Report Viewer
           </h2>
-          <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 font-mono">
-            Last 24 hours · sourced from <code>monitored_servers</code> + <code>server_metrics</code>
+          <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+            Historical 24-hour summary reports
           </p>
         </div>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={onRefresh}
-          loading={loading}
-          icon={RefreshCw}
-          title="Refresh insights"
-        >
-          <span className="hidden sm:inline">Refresh</span>
-        </Button>
+        
+        <div className="flex items-center gap-4 w-full sm:w-auto bg-white dark:bg-slate-900 p-1.5 rounded-lg border border-slate-200 dark:border-slate-800 shadow-sm">
+          <input
+            type="date"
+            value={dateStr}
+            onChange={(e) => setDateStr(e.target.value)}
+            className="bg-transparent border-none text-sm font-medium text-slate-700 dark:text-slate-200 focus:ring-0 cursor-pointer w-full sm:w-auto"
+            max={new Date().toISOString().split('T')[0]}
+          />
+          
+          <div className="h-6 w-px bg-slate-200 dark:bg-slate-700 hidden sm:block"></div>
+          
+          <select
+            value={regionFilter}
+            onChange={(e) => {
+              setRegionFilter(e.target.value);
+              setPage(1);
+            }}
+            className="bg-transparent border-none text-sm font-medium text-slate-700 dark:text-slate-200 focus:ring-0 cursor-pointer w-full sm:w-auto appearance-none pr-8"
+          >
+            <option value="ALL">All Regions</option>
+            {regions.map((r) => (
+              <option key={r} value={r}>{r}</option>
+            ))}
+          </select>
+        </div>
       </div>
 
-      {/* Summary Pills */}
-      <div className="flex flex-wrap gap-2">
-        <span className="text-xs font-mono px-3 py-1 rounded-full bg-slate-100 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 shadow-xs dark:shadow-none">
-          <span className="text-rose-600 dark:text-rose-400 font-bold">{restarts.filter((r) => Number(r.restart_count) > 0).length}</span>
-          &nbsp;servers had outages
-        </span>
-        <span className="text-xs font-mono px-3 py-1 rounded-full bg-slate-100 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 shadow-xs dark:shadow-none">
-          <span className="text-cyan-700 dark:text-cyan-400 font-bold">{busy.filter((r) => Number(r.avg_players) > 0).length}</span>
-          &nbsp;servers had players
-        </span>
-        <span className="text-xs font-mono px-3 py-1 rounded-full bg-slate-100 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 shadow-xs dark:shadow-none">
-          <span className="text-emerald-700 dark:text-emerald-400 font-bold">
-            {ping.length > 0 ? Number(ping[0].avg_ping).toFixed(0) : '—'}
-          </span>
-          &nbsp;ms best avg ping
-        </span>
-      </div>
+      {loading && (
+        <div className="py-20 text-center text-slate-500 animate-pulse">Loading report data...</div>
+      )}
+      
+      {!loading && error && (
+        <div className="py-16 flex flex-col items-center justify-center text-center bg-rose-50 dark:bg-rose-950/20 rounded-xl border border-rose-100 dark:border-rose-900/30">
+          <AlertCircle className="w-10 h-10 text-rose-500 mb-3" />
+          <h3 className="text-lg font-bold text-slate-900 dark:text-slate-100">{error}</h3>
+          <p className="text-sm text-slate-500 dark:text-slate-400 mt-1 max-w-md">
+            Please try selecting a different date. The system only caches reports that have been fully generated.
+          </p>
+        </div>
+      )}
 
-      {/* 3 Sections stacked */}
-      <RestartsSection restarts={restarts} loading={loading} />
-      <BusySection busy={busy} loading={loading} />
-      <PingSection ping={ping} loading={loading} />
+      {!loading && !error && data && (
+        <>
+          {/* 4 Top Summary Cards */}
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+            <DashboardCard title="Total Servers" value={data.total_servers} />
+            <DashboardCard title="Overall Uptime" value={`${data.uptime_percent}%`} valueClass="text-emerald-500" />
+            <DashboardCard title="Total Crashes/Offline" value={data.total_crashes} valueClass={data.total_crashes > 5 ? 'text-rose-500' : 'text-emerald-500'} />
+            <DashboardCard title="Active Regions" value={data.active_regions} />
+          </div>
+
+          {/* Paginated Server Cards */}
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
+            {paginatedServers.map((srv) => (
+              <ServerReportCard key={srv.server_id} server={srv} />
+            ))}
+          </div>
+          
+          {paginatedServers.length === 0 && (
+            <div className="py-12 text-center text-slate-500">No servers found for the selected filters.</div>
+          )}
+
+          {/* Pagination Controls */}
+          {totalPages > 1 && (
+            <div className="flex items-center justify-between pt-4 border-t border-slate-200 dark:border-slate-800">
+              <span className="text-sm text-slate-500 dark:text-slate-400">
+                Showing <span className="font-medium text-slate-900 dark:text-slate-100">{(page - 1) * PAGE_SIZE + 1}</span> to{' '}
+                <span className="font-medium text-slate-900 dark:text-slate-100">{Math.min(page * PAGE_SIZE, filteredServers.length)}</span> of{' '}
+                <span className="font-medium text-slate-900 dark:text-slate-100">{filteredServers.length}</span> servers
+              </span>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setPage((p) => Math.max(1, p - 1))}
+                  disabled={page === 1}
+                  className="px-3 py-1.5 text-sm font-medium rounded-lg border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 bg-white dark:bg-slate-800 disabled:opacity-50 hover:bg-slate-50 dark:hover:bg-slate-700"
+                >
+                  Previous
+                </button>
+                <div className="text-sm font-medium text-slate-700 dark:text-slate-200 px-2">
+                  {page} / {totalPages}
+                </div>
+                <button
+                  onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                  disabled={page === totalPages}
+                  className="px-3 py-1.5 text-sm font-medium rounded-lg border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 bg-white dark:bg-slate-800 disabled:opacity-50 hover:bg-slate-50 dark:hover:bg-slate-700"
+                >
+                  Next
+                </button>
+              </div>
+            </div>
+          )}
+        </>
+      )}
     </div>
   );
 }

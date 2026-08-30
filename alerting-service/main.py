@@ -29,30 +29,30 @@ BOT_CONNECT_RETRY_DELAY = 5   # soniya
 
 
 async def main() -> None:
-    logger.info("🚀 Alerting Service ishga tushmoqda...")
-    logger.info("🔧 Rejim: %s", settings.scheduler_mode.upper())
+    logger.info("🚀 Alerting Service starting...")
+    logger.info("🔧 Mode: DAILY")
 
     # 1. Database pool
     pool = await asyncpg.create_pool(settings.db_url, min_size=1, max_size=5)
-    logger.info("✅ TimescaleDB ga ulandi: %s", settings.db_url.split("@")[-1])
+    logger.info("✅ Connected to TimescaleDB: %s", settings.db_url.split("@")[-1])
 
-    # 2. Telegram bot — 30 soniya timeout bilan, xato bo'lsa qayta urinadi
+    # 2. Telegram bot — with 30s timeout and retries
     bot = create_bot_with_timeout()
 
     for attempt in range(1, BOT_CONNECT_MAX_RETRIES + 1):
         try:
             me = await bot.get_me()
-            logger.info("✅ Telegram Bot ulandi: @%s (chat: %s)", me.username, settings.telegram_chat_id)
+            logger.info("✅ Telegram Bot connected: @%s (chat: %s)", me.username, settings.telegram_chat_id)
             break
         except TelegramNetworkError as exc:
             logger.warning(
-                "⚠️  Telegram API ga ulanib bo'lmadi (urinish %d/%d): %s",
+                "⚠️  Failed to connect to Telegram API (attempt %d/%d): %s",
                 attempt, BOT_CONNECT_MAX_RETRIES, exc,
             )
             if attempt == BOT_CONNECT_MAX_RETRIES:
                 logger.error(
-                    "❌ %d marta urinib ko'rildi — Telegram API ga ulanib bo'lmadi.\n"
-                    "   ➜  Internetni, BOT_TOKEN ni va AWS Security Group (443/tcp outbound) ni tekshiring.",
+                    "❌ Attempted %d times — could not connect to Telegram API.\n"
+                    "   ➜  Check internet, BOT_TOKEN, and firewall settings.",
                     BOT_CONNECT_MAX_RETRIES,
                 )
                 await bot.session.close()
@@ -63,26 +63,27 @@ async def main() -> None:
     scheduler = create_scheduler(bot, pool)
     scheduler.start()
 
-    # 4. SEND_ON_STARTUP=true bo'lsa — darhol yuboradi
+    # 4. If SEND_ON_STARTUP=true — send immediately
     if settings.send_on_startup:
-        logger.info("SEND_ON_STARTUP=true — darhol hisobot yuborilmoqda...")
+        logger.info("SEND_ON_STARTUP=true — sending immediate report...")
         await send_report(bot, pool)
 
-    # 5. SIGINT / SIGTERM kelgunga qadar kutish
-    stop_event = asyncio.Event()
-    loop = asyncio.get_running_loop()
-    for sig in (signal.SIGINT, signal.SIGTERM):
-        loop.add_signal_handler(sig, stop_event.set)
-
-    logger.info("✅ Alerting Service tayyor. Scheduler ishlayapti.")
-    await stop_event.wait()
+    from aiogram import Dispatcher
+    from handlers import router
+    dp = Dispatcher()
+    dp.include_router(router)
+    
+    logger.info("✅ Alerting Service ready. Scheduler running, bot is polling.")
+    
+    # 5. Start Polling
+    await dp.start_polling(bot, pool=pool)
 
     # Cleanup
-    logger.info("🛑 To'xtatilmoqda...")
+    logger.info("🛑 Shutting down...")
     scheduler.shutdown(wait=False)
     await pool.close()
     await bot.session.close()
-    logger.info("👋 Alerting Service to'xtatildi.")
+    logger.info("👋 Alerting Service stopped.")
 
 
 if __name__ == "__main__":

@@ -52,3 +52,10 @@ ALTER TABLE server_events ADD COLUMN IF NOT EXISTS is_alerted BOOLEAN DEFAULT FA
 CREATE INDEX IF NOT EXISTS idx_server_events_label_source 
 ON server_events(label_source, root_cause) 
 WHERE root_cause IS NOT NULL AND root_cause NOT IN ('UNKNOWN', 'NORMAL');
+-- Table 4: Cached daily reports for Telegram bot on-demand requests
+CREATE TABLE IF NOT EXISTS daily_reports (
+    report_date DATE PRIMARY KEY,
+    report_text TEXT NOT NULL,
+    html_content TEXT NOT NULL,
+    json_data JSONB
+);

@@ -16,12 +16,6 @@ class Settings(BaseSettings):
     telegram_chat_id: str
     db_url: str
 
-    scheduler_mode: str = "interval"       # "interval" | "daily"
-
-    # Interval rejimi
-    report_interval_minutes: int = 5
-    lookback_minutes: int = 5
-
     # Daily rejimi
     report_hour_utc: int = 9
     report_minute_utc: int = 0

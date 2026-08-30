@@ -264,7 +264,10 @@ HTML_TEMPLATE = """<!DOCTYPE html>
 SERVER_CARD_TEMPLATE = """
             <div class="server-card" data-region="{region}">
                 <div class="server-header">
-                    <h2 title="{server_name}">{server_name}</h2>
+                    <div>
+                        <h2 title="{server_name}">{server_name}</h2>
+                        <div style="font-size: 0.8rem; opacity: 0.7; margin-top: 4px;">{server_id}</div>
+                    </div>
                     <span class="badge region">{region}</span>
                 </div>
                 <div class="server-body">
@@ -288,7 +291,7 @@ SERVER_CARD_TEMPLATE = """
             </div>
 """
 
-async def generate_daily_html_report(pool: asyncpg.Pool, lookback_days: int = 1) -> str:
+async def generate_daily_html_report(pool: asyncpg.Pool, lookback_days: int = 1) -> tuple[str, dict]:
     now = datetime.now(timezone.utc)
     start = now - timedelta(days=lookback_days)
     
@@ -305,7 +308,7 @@ async def generate_daily_html_report(pool: asyncpg.Pool, lookback_days: int = 1)
         ORDER BY server_id, ping_ms DESC
     ),
     min_pings AS (
-        SELECT server_id, MIN(ping_ms) as min_ping
+        SELECT server_id, MIN(ping_ms) FILTER (WHERE ping_ms > 0) as min_ping
         FROM base_metrics
         GROUP BY server_id
     ),
@@ -354,6 +357,7 @@ async def generate_daily_html_report(pool: asyncpg.Pool, lookback_days: int = 1)
         
         card = SERVER_CARD_TEMPLATE
         card = card.replace("{region}", row["region"])
+        card = card.replace("{server_id}", row["server_id"])
         card = card.replace("{server_name}", row["server_name"])
         card = card.replace("{offline_count}", str(row["offline_count"]))
         card = card.replace("{max_ping}", str(float(row["max_ping"])))
@@ -381,6 +385,21 @@ async def generate_daily_html_report(pool: asyncpg.Pool, lookback_days: int = 1)
     html = html.replace("{active_regions}", str(len(regions)))
     html = html.replace("{crash_class}", "critical" if total_crashes > 5 else "excellent")
     html = html.replace("{server_cards}", "\n".join(server_cards_html))
+    formatted_servers = []
+    for r in rows:
+        d = dict(r)
+        if d.get("max_ping_time"): d["max_ping_time"] = d["max_ping_time"].strftime("%H:%M")
+        if d.get("max_players_time"): d["max_players_time"] = d["max_players_time"].strftime("%H:%M")
+        formatted_servers.append(d)
+
+    json_data = {
+        "report_date": now.strftime("%Y-%m-%d %H:%M UTC"),
+        "total_servers": total_servers,
+        "uptime_percent": round(uptime, 2),
+        "total_crashes": total_crashes,
+        "active_regions": len(regions),
+        "servers": formatted_servers
+    }
     
-    return html
+    return html, json_data
 
