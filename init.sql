@@ -46,6 +46,7 @@ ALTER TABLE server_events ADD COLUMN IF NOT EXISTS player_delta INT;
 ALTER TABLE server_events ADD COLUMN IF NOT EXISTS servers_affected_same_region INT;
 ALTER TABLE server_events ADD COLUMN IF NOT EXISTS diagnosis JSONB;
 ALTER TABLE server_events ADD COLUMN IF NOT EXISTS label_source VARCHAR(32);
+ALTER TABLE server_events ADD COLUMN IF NOT EXISTS is_alerted BOOLEAN DEFAULT FALSE;
 
 -- Index for fast active learning retraining queries
 CREATE INDEX IF NOT EXISTS idx_server_events_label_source 
