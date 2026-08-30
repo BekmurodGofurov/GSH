@@ -42,12 +42,6 @@ export function Sidebar({ currentView, onViewChange, kpis, eventCount, crashCoun
       badge: '24h',
       badgeVariant: 'violet',
     },
-    {
-      id: 'alerting',
-      label: 'Alerting Config',
-      icon: Bell,
-      badge: null,
-    },
   ];
 
   return (

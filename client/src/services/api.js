@@ -42,6 +42,10 @@ async function fetchSafe(endpoint, options = {}) {
 
     if (!response.ok) {
       recordFailure();
+      try {
+        const errData = await response.json();
+        if (errData.detail) return { data: null, error: errData.detail };
+      } catch (e) {}
       return { data: null, error: `HTTP ${response.status}: ${response.statusText}` };
     }
 
@@ -63,70 +67,44 @@ export const api = {
     lastFailureTimestamp = 0;
   },
 
-  // 1. GET /api/v1/servers
   async getServers(bypassCircuit = false) {
     const res = await fetchSafe('/api/v1/servers', { bypassCircuit });
-    return {
-      data: Array.isArray(res.data) ? res.data : null,
-      error: res.error,
-    };
+    return { data: Array.isArray(res.data) ? res.data : null, error: res.error };
   },
 
-  // 2. GET /api/v1/servers/{server_id}/metrics?limit=30
   async getServerMetrics(serverId, limit = 30, bypassCircuit = false) {
     if (!serverId) return { data: [], error: 'Missing serverId' };
     const encodedId = encodeURIComponent(serverId);
     const res = await fetchSafe(`/api/v1/servers/${encodedId}/metrics?limit=${limit}`, { bypassCircuit });
-
-    const formatted = Array.isArray(res.data) ? [...res.data].reverse() : null;
-    return {
-      data: formatted,
-      error: res.error,
-    };
+    return { data: Array.isArray(res.data) ? [...res.data].reverse() : null, error: res.error };
   },
 
-  // 3. GET /api/v1/events?limit=20
   async getEvents(limit = 20, bypassCircuit = false) {
     const res = await fetchSafe(`/api/v1/events?limit=${limit}`, { bypassCircuit });
-    return {
-      data: Array.isArray(res.data) ? res.data : null,
-      error: res.error,
-    };
+    return { data: Array.isArray(res.data) ? res.data : null, error: res.error };
   },
 
-  // 4. GET /api/v1/analytics/ping-buckets?minutes=10
   async getPingBuckets(minutes = 10, bypassCircuit = false) {
     const res = await fetchSafe(`/api/v1/analytics/ping-buckets?minutes=${minutes}`, { bypassCircuit });
-    return {
-      data: Array.isArray(res.data) ? res.data : null,
-      error: res.error,
-    };
+    return { data: Array.isArray(res.data) ? res.data : null, error: res.error };
   },
 
-  // 5. GET /api/v1/analytics/daily-restarts
   async getDailyRestarts(bypassCircuit = false) {
     const res = await fetchSafe('/api/v1/analytics/daily-restarts', { bypassCircuit });
-    return {
-      data: Array.isArray(res.data) ? res.data : null,
-      error: res.error,
-    };
+    return { data: Array.isArray(res.data) ? res.data : null, error: res.error };
   },
 
-  // 6. GET /api/v1/analytics/daily-busy
   async getDailyBusy(bypassCircuit = false) {
     const res = await fetchSafe('/api/v1/analytics/daily-busy', { bypassCircuit });
-    return {
-      data: Array.isArray(res.data) ? res.data : null,
-      error: res.error,
-    };
+    return { data: Array.isArray(res.data) ? res.data : null, error: res.error };
   },
 
-  // 7. GET /api/v1/analytics/daily-ping
   async getDailyPing(bypassCircuit = false) {
     const res = await fetchSafe('/api/v1/analytics/daily-ping', { bypassCircuit });
-    return {
-      data: Array.isArray(res.data) ? res.data : null,
-      error: res.error,
-    };
+    return { data: Array.isArray(res.data) ? res.data : null, error: res.error };
+  },
+
+  async getDailyInsights(dateStr, bypassCircuit = false) {
+    return fetchSafe(`/api/v1/insights/daily?target_date=${dateStr}`, { bypassCircuit, timeout: 5000 });
   },
 };

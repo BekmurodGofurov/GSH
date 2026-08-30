@@ -20,9 +20,9 @@ def format_report(report: DailyReport) -> str:
     lines: list[str] = []
 
     # --- Header ---
-    lines.append("📊 <b>Server Monitoring Hisoboti</b>")
+    lines.append("📊 <b>Server Monitoring Report</b>")
     lines.append(f"🕐 <b>{report['report_date']}</b>")
-    lines.append(f"🔍 Tahlil oynasi: <i>{report['window_label']}</i>\n")
+    lines.append(f"🔍 Analysis Window: <i>{report['window_label']}</i>\n")
 
     # --- Highest Ping (1 ta — peak) ---
     hp = report["highest_ping"]
@@ -35,14 +35,14 @@ def format_report(report: DailyReport) -> str:
             f"       📍 {hp['region']} | <b>{hp['max_ping_ms']:.0f} ms</b> @ {rec_time}"
         )
     else:
-        lines.append("🏓 <b>Peak Ping:</b> ma'lumot yo'q")
+        lines.append("🏓 <b>Peak Ping:</b> no data available")
 
     lines.append("")
 
     # --- Avg Ping top 3 ---
     avg_pings = report.get("avg_pings", [])
     if avg_pings:
-        lines.append("📶 <b>O'rtacha Ping (TOP 3):</b>")
+        lines.append("📶 <b>Average Ping (TOP 3):</b>")
         for i, ap in enumerate(avg_pings, 1):
             emoji = _ping_emoji(ap["avg_ping_ms"])
             lines.append(
@@ -55,47 +55,47 @@ def format_report(report: DailyReport) -> str:
     crashers = report["top_crashers"]
     if crashers:
         top = crashers[0]
-        lines.append("💥 <b>Eng Ko'p Yongan Server:</b>")
+        lines.append("💥 <b>Most Unstable Server:</b>")
         lines.append(
             f"  └ 🔴 <code>{_short_name(top['server_name'])}</code>\n"
-            f"       📍 {top['region']} | <b>{top['crash_count']} marta</b> crash"
+            f"       📍 {top['region']} | <b>{top['crash_count']} times</b> crashed"
         )
         if len(crashers) > 1:
             lines.append("")
-            lines.append("📋 <b>Barcha Yonganlar:</b>")
+            lines.append("📋 <b>All Crashed Servers:</b>")
             for i, c in enumerate(crashers, 1):
                 lines.append(
                     f"  {i}. <code>{_short_name(c['server_name'], 32)}</code>"
                     f" — {c['crash_count']}x"
                 )
     else:
-        lines.append("💥 <b>Crash / Offline:</b> bu oynada hech narsa yo'q ✅")
+        lines.append("💥 <b>Crash / Offline:</b> 0 issues found in this window ✅")
 
     lines.append("")
 
     # --- Event Summary ---
     ev = report["event_summary"]
-    lines.append("⚠️ <b>Voqealar:</b>")
+    lines.append("⚠️ <b>Event Summary:</b>")
     if ev["total"] == 0:
-        lines.append("  └ Hech qanday voqea qayd etilmagan ✅")
+        lines.append("  └ No events recorded ✅")
     else:
         if ev["crash"] + ev["offline"]:
-            lines.append(f"  └ 🔴 CRASH/OFFLINE: <b>{ev['crash'] + ev['offline']} ta</b>")
+            lines.append(f"  └ 🔴 CRASH/OFFLINE: <b>{ev['crash'] + ev['offline']}</b>")
         if ev["high_ping"]:
-            lines.append(f"  └ 🟡 HIGH_PING: <b>{ev['high_ping']} ta</b>")
+            lines.append(f"  └ 🟡 HIGH_PING: <b>{ev['high_ping']}</b>")
         if ev["recovery"]:
-            lines.append(f"  └ 🟢 RECOVERY: <b>{ev['recovery']} ta</b>")
-        lines.append(f"  └ 📌 Jami: <b>{ev['total']} ta</b>")
+            lines.append(f"  └ 🟢 RECOVERY: <b>{ev['recovery']}</b>")
+        lines.append(f"  └ 📌 Total Events: <b>{ev['total']}</b>")
 
     lines.append("")
 
     # --- Server Statuses ---
     st = report["server_statuses"]
     status_emoji = "✅" if st["offline"] == 0 else ("🟡" if st["offline"] <= 2 else "🔴")
-    lines.append("🖥️ <b>Server Holati (hozir):</b>")
+    lines.append("🖥️ <b>Current Server Status:</b>")
     lines.append(
         f"  └ {status_emoji} ONLINE: <b>{st['online']}</b> | "
-        f"OFFLINE: <b>{st['offline']}</b> | Jami: <b>{st['total']}</b>"
+        f"OFFLINE: <b>{st['offline']}</b> | Total: <b>{st['total']}</b>"
     )
 
     lines.append("")

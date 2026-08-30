@@ -6,7 +6,6 @@ import { OverviewView } from './components/views/OverviewView';
 import { ServersView } from './components/views/ServersView';
 import { EventLogsView } from './components/views/EventLogsView';
 import { AnalyticsView } from './components/views/AnalyticsView';
-import { AlertingSettingsView } from './components/views/AlertingSettingsView';
 import { InsightsView } from './components/views/InsightsView';
 import { ServerDetailModal } from './components/dashboard/ServerDetailModal';
 import { ToastContainer } from './components/common/ToastNotification';
@@ -155,20 +154,10 @@ export function App() {
       )}
 
       {currentView === 'insights' && (
-        <InsightsView
-          dailyInsights={dailyInsights}
-          onRefresh={refreshInsights}
-        />
+        <InsightsView />
       )}
 
-      {currentView === 'alerting' && (
-        <AlertingSettingsView
-          audio={audio}
-          onTriggerTestAlert={triggerTestNotification}
-        />
-      )}
-
-      {/* Inspect Server Detail Modal */}
+    {/* Inspect Server Detail Modal */}
       <ServerDetailModal
         server={inspectServer}
         isOpen={Boolean(inspectServer)}

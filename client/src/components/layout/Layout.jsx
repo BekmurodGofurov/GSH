@@ -70,7 +70,7 @@ export function Layout({
 
       {/* Mobile Bottom Navigation Bar for smaller viewports */}
       <div className="md:hidden flex items-center justify-around border-t border-slate-800 bg-slate-950/90 backdrop-blur-lg p-2 sticky bottom-0 z-40 text-xs">
-        {['overview', 'servers', 'events', 'analytics', 'insights', 'alerting'].map((view) => (
+        {['overview', 'servers', 'events', 'analytics', 'insights'].map((view) => (
           <button
             key={view}
             onClick={() => onViewChange(view)}
