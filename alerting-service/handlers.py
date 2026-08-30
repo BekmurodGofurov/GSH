@@ -15,7 +15,7 @@ async def handle_date_query(message: Message, bot: Bot, pool: asyncpg.Pool):
     me = await bot.get_me()
     bot_mention = f"@{me.username}"
     
-    if bot_mention not in message.text:
+    if not message.text or bot_mention not in message.text:
         return
         
     match = date_pattern.search(message.text)

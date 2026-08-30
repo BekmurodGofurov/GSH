@@ -37,13 +37,27 @@ async def _send_with_retry(bot: Bot, chat_id: str, text: str, document_path: str
     for attempt in range(1, SEND_MAX_RETRIES + 1):
         try:
             if document_path:
-                await bot.send_document(
-                    chat_id=chat_id,
-                    document=FSInputFile(document_path),
-                    caption=text,
-                    parse_mode="HTML",
-                    request_timeout=SEND_TIMEOUT,
-                )
+                if len(text) > 1000:
+                    await bot.send_message(
+                        chat_id=chat_id,
+                        text=text,
+                        parse_mode="HTML",
+                        request_timeout=SEND_TIMEOUT,
+                    )
+                    await bot.send_document(
+                        chat_id=chat_id,
+                        document=FSInputFile(document_path),
+                        caption="📄 Attached Daily HTML Report",
+                        request_timeout=SEND_TIMEOUT,
+                    )
+                else:
+                    await bot.send_document(
+                        chat_id=chat_id,
+                        document=FSInputFile(document_path),
+                        caption=text,
+                        parse_mode="HTML",
+                        request_timeout=SEND_TIMEOUT,
+                    )
             else:
                 await bot.send_message(
                     chat_id=chat_id,
@@ -65,6 +79,14 @@ async def _send_with_retry(bot: Bot, chat_id: str, text: str, document_path: str
             )
             await asyncio.sleep(SEND_RETRY_DELAY)
 
+
+from decimal import Decimal
+
+class DecimalEncoder(json.JSONEncoder):
+    def default(self, obj):
+        if isinstance(obj, Decimal):
+            return float(obj)
+        return super(DecimalEncoder, self).default(obj)
 
 async def send_report(bot: Bot, pool: asyncpg.Pool) -> None:
     """Builds a daily report, sends it to Telegram (with HTML), and caches it in the DB."""
@@ -91,7 +113,7 @@ async def send_report(bot: Bot, pool: asyncpg.Pool) -> None:
             async with pool.acquire() as conn:
                 await conn.execute(
                     "INSERT INTO daily_reports (report_date, report_text, html_content, json_data) VALUES ($1, $2, $3, $4) ON CONFLICT (report_date) DO UPDATE SET report_text=$2, html_content=$3, json_data=$4",
-                    now.date(), text, html_content, json.dumps(json_data)
+                    now.date(), text, html_content, json.dumps(json_data, cls=DecimalEncoder)
                 )
         except Exception as e:
             logger.error(f"Error caching report: {e}")
