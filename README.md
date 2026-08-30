@@ -1,205 +1,169 @@
-# Game Server Health & Anomaly Monitor (GSH)
+# 🎮 Game Server Health & Anomaly Monitor (GSH)
 
-Real-time monitoring and anomaly detection platform for multiplayer game servers. It collects live server status, player counts, latency (ping), and events, stores time-series data in TimescaleDB, streams metrics via Redis Streams, and provides a real-time React dashboard.
+**Real-time, ML-powered monitoring and anomaly detection platform for multiplayer game servers.** 
 
-> **Current status:** The live CS2 ingestion pipeline directly queries 28 real game servers (Vienna, Warsaw, EU-East) via Valve's UDP A2S protocol, stores metrics in TimescaleDB, publishes to Redis Streams, and streams live updates to the React dashboard via FastAPI WebSockets. The ML anomaly detection (Z-Score baseline) and Telegram alerting services are implemented. Root-Cause ML and Dota 2 / PUBG pollers are in active development.
+GSH collects live server status, player counts, latency (ping), and events, stores massive time-series data in **TimescaleDB**, streams metrics via **Redis Streams**, applies real-time **Machine Learning** to detect and classify anomalies, and provides a powerful **React Dashboard** alongside an automated **Telegram Alerting Bot**.
 
----
-
-## Features
-
-- **Live CS2 Monitoring:** Real-time UDP A2S queries to 28 public CS2 servers across Eastern/Central Europe (Vienna, Warsaw, EU-East).
-- **Asynchronous Ingestion:** Concurrent non-blocking polling with automatic timeout handling.
-- **Time-Series Storage:** High-performance metric storage using TimescaleDB hypertables.
-- **Message Broker:** Redis Streams (`server_metrics_stream`) publishing for downstream ML anomaly detection and classification pipelines.
-- **Real-Time Gateway:** FastAPI REST API and live WebSocket broadcast (`/ws/live`).
-- **Interactive Dashboard:** Modern React 18 + Vite dashboard with Recharts, regional/status filters, KPI metrics, and audio alerts.
+> **Current Status:** Fully operational for CS2. The ingestion pipeline actively monitors 28 real CS2 servers across Eastern/Central Europe (Vienna, Warsaw, EU-East) via Valve's UDP A2S protocol. The ML pipeline detects baseline deviations and classifies root causes (e.g., `REGIONAL_OUTAGE`, `HIGH_LATENCY`). The Telegram bot sends instant anomaly alerts and daily HTML/JSON analytical reports.
 
 ---
 
-## Architecture & Data Flow
+## Key Features
 
-```text
-[28 Real CS2 Servers (UDP A2S Queries)]
-                 │ (every 3s)
-                 ▼
-       [Ingestion Service / Poller]
-          │                     │
-          ▼                     ▼
-[TimescaleDB (Hypertable)]   [Redis Streams (server_metrics_stream)]
-          │                     │
-          ▼                     ▼
-    [Gateway API]        [ML Services (Planned)]
-    (REST + /ws/live)           │
-          │                     ▼
-          ▼             [Alerting Service] ──► Telegram
-  [React Dashboard]
-```
-
-### Data Flow Steps
-
-1. **Seed & Discovery:** On startup, `db.py` ensures the monitored servers list is initialized in `monitored_servers`.
-2. **Polling Loop:** `poller.py` performs concurrent UDP A2S queries every 3 seconds to measure latency, player count, and online status.
-3. **Database Storage:** Metrics are written to the `server_metrics` TimescaleDB hypertable, and server statuses are updated in `monitored_servers`.
-4. **Stream Publishing:** Each metric record is pushed to the Redis Stream `server_metrics_stream` for consumption by ML anomaly detection models.
-5. **Gateway Broadcasting:** The Gateway API provides REST endpoints and pushes live snapshots every 3 seconds through `/ws/live`.
-6. **Frontend Visualization:** The React UI renders KPI cards, time-series charts, and server grids in real time.
+- **Live UDP Polling:** Concurrent, non-blocking UDP A2S queries to game servers with automatic timeout handling.
+- **Time-Series Engine:** High-performance metric storage using PostgreSQL + TimescaleDB hypertables.
+- **Event-Driven ML Pipeline:** Redis Streams (`server_metrics_stream`) feed live data to an Anomaly Detection ML model (Rolling Z-Score) and a Root-Cause Classifier.
+- **Smart Telegram Alerting:** 
+  - Instant notifications for anomalies with AI-diagnosed root causes (`#event`).
+  - Automated Daily Analytics HTML Reports with performance leaderboards (`#daily_report`).
+  - On-demand historical queries via chat (e.g., `@bot 2026.08.30`).
+- **Interactive React Dashboard:** Modern UI (React 18 + Vite) featuring WebSocket live feeds, KPI cards, paginated insights, historical calendars, and Dark Mode.
 
 ---
 
-## Technology Stack
+## System Architecture & Microservices
 
-| Layer | Technologies |
-|---|---|
-| **Frontend** | React 18, Vite, Recharts, Tailwind CSS, Lucide Icons |
-| **Gateway API** | FastAPI, Uvicorn, asyncpg, WebSockets |
-| **Ingestion Service** | FastAPI, `python-a2s`, `asyncpg`, `redis-py` |
-| **Database** | PostgreSQL 15 + TimescaleDB Extension |
-| **Message Queue** | Redis 7 (Redis Streams) |
-| **Shared Schemas** | Pydantic v2 |
+GSH is built as a highly decoupled microservices architecture, utilizing Docker for orchestration.
+
+```mermaid
+graph TD
+    subgraph Game Servers
+        S1[CS2 Server 1]
+        S2[CS2 Server N]
+    end
+
+    subgraph Data Ingestion
+        IS[Ingestion Service <br/> FastAPI / UDP Poller]
+    end
+
+    subgraph Storage & Broker
+        DB[(TimescaleDB <br/> PostgreSQL 15)]
+        REDIS[[Redis 7 <br/> Pub/Sub Streams]]
+    end
+
+    subgraph ML Pipeline
+        AB[Anomaly Bridge <br/> Poller Script]
+        AD[Anomaly Detection ML <br/> FastAPI]
+        RC[Root-Cause ML <br/> FastAPI]
+    end
+
+    subgraph API & Frontend
+        GW[Gateway API <br/> REST + WebSockets]
+        UI[React Dashboard <br/> Vite / Tailwind]
+    end
+
+    subgraph Notification
+        ALERT[Alerting Service <br/> Aiogram Bot]
+        TG((Telegram Users))
+    end
+
+    S1 & S2 -. UDP A2S .-> IS
+    IS -- SQL Insert --> DB
+    IS -- Publish --> REDIS
+    REDIS -- Subscribe --> AB
+    AB -- Detect --> AD
+    AB -- Diagnose --> RC
+    AB -- Save Event --> DB
+    
+    DB -- Query --> GW
+    GW -- WS / HTTP --> UI
+    
+    DB -- Poll / Query --> ALERT
+    ALERT -- Send Report/Alert --> TG
+```
+
+### Directory Layout
+
+| Service / Directory | Description | Stack |
+|:---|:---|:---|
+| `/ingestion-service` | Asynchronously queries servers via UDP A2S every 3s, writes to Timescale, publishes to Redis. | FastAPI, Python A2S |
+| `/anomaly-detection-ml` | ML model assessing dynamic server baselines (Z-Scores) to detect latency or player anomalies. | FastAPI, Scikit-learn |
+| `/root-cause-ml` | ML classifier determining if an anomaly is a Server Crash, DDoS, or Regional Outage. | FastAPI, Scikit-learn |
+| `/anomaly-bridge` | Acts as the glue: subscribes to Redis Streams, triggers ML models, and saves diagnosed events. | Python, Redis-py |
+| `/gateway-api` | Main backend API providing REST data to the frontend and broadcasting WebSocket updates. | FastAPI, Asyncpg |
+| `/client` | The interactive frontend UI with KPI grids, Recharts, dark mode, and server metrics. | React, Vite, Tailwind |
+| `/alerting-service` | APScheduler & Aiogram bot sending instant anomaly alerts and daily HTML analytical reports. | Aiogram 3, Asyncpg |
+| `/shared_schemas` | Pydantic v2 schemas used across all Python microservices for strict data validation. | Pydantic |
 
 ---
 
-## Project Structure
+## 🚀 Getting Started
 
-```text
-.
-├── docker-compose.yml          # Container orchestration (TimescaleDB, Redis, Gateway, Ingestion)
-├── init.sql                    # TimescaleDB schema (hypertables, servers, events)
-├── shared_schemas/             # Shared Pydantic schemas across services
-│   └── models.py
-├── gateway-api/                # REST API & WebSocket service
-│   ├── main.py
-│   ├── Dockerfile
-│   └── requirements.txt
-├── ingestion-service/          # Live CS2 A2S poller and ingestion API
-│   ├── db.py                   # Async connection pool & initial server seeds
-│   ├── poller.py               # Asynchronous UDP A2S poller & Redis publisher
-│   ├── main.py                 # FastAPI service and lifespan runner
-│   ├── schemas.py              # Ingestion-specific Pydantic schemas
-│   ├── Dockerfile
-│   └── requirements.txt
-├── anomaly-detection-ml/       # ML Anomaly Detection Service (Baseline implemented)
-│   ├── main.py
-│   ├── bridge.py
-│   └── Dockerfile
-├── root-cause-ml/              # ML Root-Cause Classifier Service (In Development)
-│   ├── main.py
-│   └── Dockerfile
-├── alerting-service/           # Telegram Alerting & Reporting service
-│   ├── main.py
-│   ├── scheduler.py
-│   ├── reports.py
-│   └── Dockerfile
-└── client/                     # React + Vite Dashboard
-    ├── src/
-    │   ├── components/         # Dashboard views, charts, cards, modals
-    │   ├── hooks/              # useServerData, useWebSocket, useAudioAlert
-    │   └── services/           # REST client with circuit breaker
-    ├── vite.config.js
-    └── package.json
+### 1. Prerequisites
+- Docker and Docker Compose (v2)
+- Node.js 18+ (if running the frontend locally)
+- Python 3.10+ (if running backend services locally)
+- A Telegram Bot Token (from [@BotFather](https://t.me/BotFather)) and a Chat/Group ID.
+
+### 2. Environment Configuration
+Create a `.env` file in the root directory based on `.env.example`:
+
+```bash
+cp .env.example .env
 ```
+Ensure you fill in the Telegram Bot credentials inside the `.env` file to enable the Alerting Service:
+```env
+TELEGRAM_BOT_TOKEN="your_telegram_bot_token"
+TELEGRAM_CHAT_ID="-100xxxxxxxxx"
+SCHEDULER_MODE="daily"
+SEND_ON_STARTUP="true"
+```
+
+### 3. Run Production Stack (Docker)
+To spin up the entire architecture (Databases, ML Models, APIs, Bot, and Ingestion):
+
+```bash
+docker-compose up -d --build
+```
+
+### 4. Verify Services
+- **React Dashboard:** [http://localhost:3000](http://localhost:3000)
+- **Gateway API Docs:** [http://localhost:8000/docs](http://localhost:8000/docs)
+- **Ingestion API Docs:** [http://localhost:8001/docs](http://localhost:8001/docs)
+
+*(Note: The Telegram Bot will instantly send an initialization message to your configured group if `SEND_ON_STARTUP=true`).*
 
 ---
 
-## Getting Started
+## Dashboard Modules Explained
 
-### Development Mode (Recommended)
-
-Run databases in Docker, and run the backend poller and frontend locally for development and testing:
-
-#### 1. Start Infrastructure (TimescaleDB + Redis + Gateway)
-```bash
-docker compose up -d timescaledb redis gateway-api
-```
-
-#### 2. Run the Ingestion Poller (in a separate terminal)
-```bash
-cd ingestion-service
-python poller.py
-```
-*(Or run the full Ingestion API: `uvicorn main:app --port 8001 --reload`)*
-
-#### 3. Start the Frontend Dashboard (in a separate terminal)
-```bash
-cd client
-npm install
-npm run dev
-```
-
-Open `http://localhost:3000` to view the live dashboard.
+1. **Overview:** The primary command center. Displays top-level KPIs (Online/Offline ratio, Health Score), a 9-grid view of server cards, live interactive Timescale charts, and an event feed timeline.
+2. **Server Fleet:** A detailed, filterable, and paginated table of all registered servers, displaying exact geographic regions, IP addresses, and current status.
+3. **Event Logs:** A raw log viewer for all detected anomalies, crashes, and recoveries fetched directly from `server_events`.
+4. **Timescale Analytics:** Time-bucketed aggregates showing performance metrics over a selected timeframe (e.g., 10-minute intervals).
+5. **Daily Insights (Report Viewer):** A beautiful, standalone reporting interface allowing administrators to select a historical date from a calendar and view that day's generated JSON/HTML analytical report directly in the UI.
 
 ---
 
-### Full Docker Mode
+## 🤖 Telegram Bot Commands & Alerts
 
-To run all services inside Docker containers:
+The integrated Aiogram bot operates automatically in the background, but also listens for user interactions:
 
-```bash
-docker compose up -d --build
-```
-
-### Anomaly and root-cause pipeline
-
-`anomaly-bridge` sends every confirmed anomaly to `root-cause-ml` and stores
-the telemetry, anomaly score, ranked diagnosis, and primary root cause in
-`server_events`. For an existing database volume, apply the schema migration
-once before starting the updated bridge:
-
-```bash
-docker compose exec -T timescaledb psql -U postgres -d game_monitor < migrations/001_add_anomaly_evidence.sql
-```
-
-Then rebuild and start the ML services:
-
-```bash
-docker compose up -d --build root-cause-ml anomaly-detection-ml anomaly-bridge
-```
-
-- **Dashboard:** http://localhost:3000
-- **Gateway API Swagger Docs:** http://localhost:8000/docs
-- **Ingestion Service Health:** http://localhost:8001/health
-
-To stop all services:
-```bash
-docker compose down
-```
-
----
-
-## API Endpoints
-
-### Gateway API (`http://localhost:8000`)
-
-| Method | Endpoint | Description |
-|---|---|---|
-| `GET` | `/api/v1/servers` | All monitored servers with their latest metrics |
-| `GET` | `/api/v1/servers/{server_id}/metrics?limit=30` | Historical time-series metrics for a server |
-| `GET` | `/api/v1/events?limit=20` | Recent server incident and anomaly events |
-| `GET` | `/api/v1/analytics/ping-buckets?minutes=10` | Time-bucketed average ping and player counts |
-| `POST` | `/api/v1/servers` | Register a new server to monitor |
-| `WS` | `/ws/live` | Real-time WebSocket snapshot stream (every 3s) |
-
-### Ingestion API (`http://localhost:8001`)
-
-| Method | Endpoint | Description |
-|---|---|---|
-| `GET` | `/health` | Ingestion service health status |
-| `POST` | `/api/v1/ingest/metric` | Ingest a raw server metric record |
-| `POST` | `/api/v1/ingest/event` | Ingest an event or alert log |
+- **Instant Anomalies (`#event`):** Whenever the `root-cause-ml` service diagnoses a severe issue (e.g., `REGIONAL_OUTAGE`), the bot instantly posts a detailed alert containing the server IP, the diagnosed root cause, confidence score, and recommended actions.
+- **Daily Analytics (`#daily_report`):** At a scheduled UTC time, the bot compiles 24 hours of data into a stylized HTML file and sends it to the group. It includes metrics like "Most Unstable Server", "Top 3 Best Ping Servers", and "Total Busiest Servers".
+- **Historical Query:** Mention the bot with a date to retrieve a cached report.
+  ```text
+  @your_bot_username 2026.08.30
+  ```
 
 ---
 
 ## Roadmap
 
-- [x] Shared Pydantic data schemas
-- [x] TimescaleDB time-series storage and hypertable configuration
+- [x] Shared Pydantic data schemas for microservice reliability
+- [x] TimescaleDB time-series storage and hypertable indexing
 - [x] Live CS2 asynchronous UDP A2S poller (Vienna, Warsaw, EU-East)
-- [x] Redis Streams publishing (`server_metrics_stream`)
+- [x] Redis Streams message broker integration (`server_metrics_stream`)
 - [x] Real-time FastAPI WebSocket gateway
-- [x] Full-featured React dashboard with live charts and filters
+- [x] Full-featured React dashboard with live charts, filters, and Dark Mode
 - [x] Anomaly Detection Service (Rolling Z-Score Baseline)
-- [ ] Root-Cause Classification Service (Rules & ML classification)
-- [x] Telegram Bot Alerting Service with scheduled reports
-- [ ] Dota 2 (OpenDota / Steam API) live ingestion
+- [x] Root-Cause Classification Service (ML diagnosis pipeline)
+- [x] Telegram Bot Alerting Service with HTML scheduled reports
+- [x] JSON caching for Daily Reports UI integration
+- [ ] Dota 2 (OpenDota / Steam API) live ingestion support
 - [ ] PUBG API rate-limited shard polling
+
+---
+
+## License
+This project is proprietary and built for Game Server Health (GSH) monitoring.
