@@ -131,7 +131,12 @@ async def send_report(bot: Bot, pool: asyncpg.Pool) -> None:
 
 
 async def poll_and_alert_new_events(bot: Bot, pool: asyncpg.Pool) -> None:
-    """Polls for new, un-alerted root causes and sends alerts."""
+    """Polls for new, un-alerted root causes and sends alerts.
+
+    Batch size is intentionally small (3 per cycle) to stay within
+    Telegram's group rate limit (~20 msg/min). With a 15s interval
+    and 1.5s inter-message delay, worst-case throughput is ~9 alerts/min.
+    """
     query = """
         SELECT se.id, se.time, se.server_id, ms.server_name, ms.region,
                se.root_cause, se.diagnosis, se.ping_delta, se.player_delta
@@ -140,21 +145,21 @@ async def poll_and_alert_new_events(bot: Bot, pool: asyncpg.Pool) -> None:
         WHERE se.is_alerted = FALSE 
           AND se.root_cause IS NOT NULL 
           AND se.root_cause NOT IN ('UNKNOWN', 'NORMAL')
-        ORDER BY se.id ASC LIMIT 10;
+        ORDER BY se.id ASC LIMIT 3;
     """
     try:
         async with pool.acquire() as conn:
             rows = await conn.fetch(query)
             if not rows:
                 return
-                
+
             alerted_ids = []
-            for row in rows:
+            for i, row in enumerate(rows):
                 diag = json.loads(row["diagnosis"]) if row["diagnosis"] else {}
                 explanation = diag.get("explanation", "Anomaly cause detected.")
                 recommendation = diag.get("recommendation", "")
                 conf = diag.get("confidence", "UNKNOWN")
-                
+
                 text = (
                     f"🚨 <b>New Anomaly Detected</b> 🚨\n\n"
                     f"🖥 <b>Server:</b> {row['server_name']} ({row['region']})\n"
@@ -166,16 +171,20 @@ async def poll_and_alert_new_events(bot: Bot, pool: asyncpg.Pool) -> None:
                     f"🛠 <b>Recommendation:</b> {recommendation}\n\n"
                     f"#event"
                 )
-                
+
                 try:
                     await _send_with_retry(bot, settings.telegram_chat_id, text)
                     alerted_ids.append(row["id"])
+                    # Telegram group rate limit: ~1 msg/sec — wait between messages
+                    if i < len(rows) - 1:
+                        await asyncio.sleep(1.5)
                 except Exception as e:
                     logger.error(f"Alert yuborishda xatolik: {e}")
-                    
+
             if alerted_ids:
                 await conn.execute("UPDATE server_events SET is_alerted = TRUE WHERE id = ANY($1)", alerted_ids)
-                
+                logger.info("✅ %d alert(s) marked as sent.", len(alerted_ids))
+
     except Exception as e:
         logger.error(f"Polling error: {e}")
 
