@@ -8,6 +8,7 @@ import {
   Globe2,
   Sun,
   Moon,
+  Bell,
 } from 'lucide-react';
 import { Badge } from '../common/Badge';
 import { Button } from '../common/Button';
@@ -26,6 +27,8 @@ export function Header({
   kpis,
   theme,
   toggleTheme,
+  onViewChange,
+  crashCount = 0,
 }) {
   const isWsConnected = wsStatus === 'connected';
 
@@ -105,6 +108,23 @@ export function Header({
             <Sun className="w-4 h-4" />
           ) : (
             <Moon className="w-4 h-4" />
+          )}
+        </Button>
+
+        {/* Notifications Bell */}
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => onViewChange && onViewChange('events')}
+          title="View Notifications & Events"
+          className="relative text-slate-600 dark:text-slate-400 hover:text-indigo-500 dark:hover:text-indigo-400"
+        >
+          <Bell className={`w-4 h-4 ${crashCount > 0 ? 'animate-bounce text-rose-500' : ''}`} />
+          {crashCount > 0 && (
+            <span className="absolute -top-1 -right-1 flex h-3 w-3">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-rose-400 opacity-75"></span>
+              <span className="relative inline-flex rounded-full h-3 w-3 bg-rose-500"></span>
+            </span>
           )}
         </Button>
 

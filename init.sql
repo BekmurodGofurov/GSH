@@ -17,7 +17,7 @@ CREATE TABLE IF NOT EXISTS server_metrics (
     server_id VARCHAR(64) NOT NULL REFERENCES monitored_servers(server_id),
     player_count INT NOT NULL,
     max_players INT NOT NULL,
-    ping_ms NUMERIC(6, 2) NOT NULL
+    ping_ms NUMERIC(6, 2)
 );
 
 SELECT create_hypertable('server_metrics', 'time', if_not_exists => TRUE);

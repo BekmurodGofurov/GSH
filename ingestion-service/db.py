@@ -2,6 +2,7 @@ import os
 import sys
 from pathlib import Path
 import asyncpg
+import logging
 
 # Support standalone and container imports for shared_schemas
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -57,7 +58,7 @@ async def seed_servers_if_needed(pool: asyncpg.Pool):
                 VALUES ($1, $2, $3, 'ONLINE')
                 ON CONFLICT (server_id) DO NOTHING;
             """, s["server_id"], s["server_name"], s["region"])
-    print(f"✅ {len(DEFAULT_SERVERS)} real CS2 servers verified/seeded in monitored_servers table.")
+    logging.info(f"✅ {len(DEFAULT_SERVERS)} real CS2 servers verified/seeded in monitored_servers table.")
 
 async def init_db() -> asyncpg.Pool:
     global db_pool

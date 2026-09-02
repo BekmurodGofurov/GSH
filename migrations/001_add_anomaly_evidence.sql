@@ -8,4 +8,4 @@ ALTER TABLE server_events ADD COLUMN IF NOT EXISTS ping_delta NUMERIC(8, 2);
 ALTER TABLE server_events ADD COLUMN IF NOT EXISTS player_delta INT;
 ALTER TABLE server_events ADD COLUMN IF NOT EXISTS servers_affected_same_region INT;
 ALTER TABLE server_events ADD COLUMN IF NOT EXISTS diagnosis JSONB;
-ALTER TABLE server_events ADD COLUMN IF NOT EXISTS label_source VARCHAR(32);
+ALTER TABLE server_events ADD COLUMN IF NOT EXISTS label_source VARCHAR(32) DEFAULT 'model';
