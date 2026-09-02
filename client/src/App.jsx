@@ -9,6 +9,7 @@ import { AnalyticsView } from './components/views/AnalyticsView';
 import { InsightsView } from './components/views/InsightsView';
 import { ServerDetailModal } from './components/dashboard/ServerDetailModal';
 import { ToastContainer } from './components/common/ToastNotification';
+import { AdminWrapper } from './components/views/AdminWrapper';
 
 export function App() {
   const [currentView, setCurrentView] = useState('overview');
@@ -155,6 +156,10 @@ export function App() {
 
       {currentView === 'insights' && (
         <InsightsView />
+      )}
+
+      {currentView === 'admin' && (
+        <AdminWrapper />
       )}
 
     {/* Inspect Server Detail Modal */}

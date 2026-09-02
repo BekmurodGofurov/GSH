@@ -27,9 +27,27 @@ class EventLabelRequest(BaseModel):
         description="SERVER_CRASH, HIGH_LATENCY, DDOS_ATTACK, REGIONAL_OUTAGE, PLAYER_DROP, MAINTENANCE"
     )
 
+from fastapi import Depends, Security
+from fastapi.security.api_key import APIKeyHeader
+
 DB_URL = os.getenv("DB_URL")
 if not DB_URL:
     raise ValueError("DB_URL environment variable is not set. Please provide it in the .env file.")
+
+ADMIN_API_KEY = os.getenv("ADMIN_API_KEY")
+ADMIN_USERNAME = os.getenv("ADMIN_USERNAME")
+ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD")
+
+if not all([ADMIN_API_KEY, ADMIN_USERNAME, ADMIN_PASSWORD]):
+    raise ValueError("ADMIN_API_KEY, ADMIN_USERNAME, and ADMIN_PASSWORD must be set in the .env file.")
+
+api_key_header = APIKeyHeader(name="X-API-Key", auto_error=True)
+
+async def verify_api_key(api_key: str = Security(api_key_header)):
+    if api_key != ADMIN_API_KEY:
+        raise HTTPException(status_code=403, detail="Unauthorized")
+    return api_key
+
 db_pool = None
 
 def get_db_pool():
@@ -54,9 +72,11 @@ app = FastAPI(
     lifespan=lifespan
 )
 
+FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:5173")
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=[FRONTEND_URL],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -89,8 +109,18 @@ LATEST_SERVERS_QUERY = """
 
 
 
+class LoginRequest(BaseModel):
+    username: str
+    password: str
+
+@app.post("/api/v1/admin/login")
+async def admin_login(creds: LoginRequest):
+    if creds.username == ADMIN_USERNAME and creds.password == ADMIN_PASSWORD:
+        return {"status": "success", "token": ADMIN_API_KEY}
+    raise HTTPException(status_code=401, detail="Invalid credentials")
+
 @app.post("/api/v1/servers", status_code=201)
-async def add_monitored_server(data: ServerCreate):
+async def add_monitored_server(data: ServerCreate, api_key: str = Depends(verify_api_key)):
     """Add or update a monitored CS2 server via Admin or Frontend"""
     async with get_db_pool().acquire() as conn:
         await conn.execute("""
@@ -262,7 +292,7 @@ async def websocket_endpoint(websocket: WebSocket):
         pass
 
 @app.post("/api/v1/events/{event_id}/label")
-async def update_event_label(event_id: int, payload: EventLabelRequest):
+async def update_event_label(event_id: int, payload: EventLabelRequest, api_key: str = Depends(verify_api_key)):
     """Update or verify the root cause label of an incident (Active Learning)."""
     async with get_db_pool().acquire() as conn:
         result = await conn.execute("""
@@ -273,3 +303,27 @@ async def update_event_label(event_id: int, payload: EventLabelRequest):
         if result == "UPDATE 0":
             raise HTTPException(status_code=404, detail="Incident not found")
     return {"status": "success", "event_id": event_id, "root_cause": payload.root_cause, "label_source": "manual"}
+@app.put("/api/v1/servers/{server_id:path}")
+async def update_monitored_server(server_id: str, data: ServerCreate, api_key: str = Depends(verify_api_key)):
+    """Update a monitored CS2 server."""
+    async with get_db_pool().acquire() as conn:
+        result = await conn.execute("""
+            UPDATE monitored_servers
+            SET server_id = $1, server_name = $2, region = $3
+            WHERE server_id = $4;
+        """, data.server_id, data.server_name, data.region, server_id)
+        if result == "UPDATE 0":
+            raise HTTPException(status_code=404, detail="Server not found")
+    return {"status": "success", "message": f"Server {server_id} updated successfully"}
+
+@app.delete("/api/v1/servers/{server_id:path}")
+async def delete_monitored_server(server_id: str, api_key: str = Depends(verify_api_key)):
+    """Delete a monitored CS2 server."""
+    async with get_db_pool().acquire() as conn:
+        result = await conn.execute("""
+            DELETE FROM monitored_servers
+            WHERE server_id = $1;
+        """, server_id)
+        if result == "DELETE 0":
+            raise HTTPException(status_code=404, detail="Server not found")
+    return {"status": "success", "message": f"Server {server_id} deleted successfully"}

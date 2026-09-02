@@ -65,6 +65,11 @@ async function fetchSafe(endpoint, options = {}) {
   }
 }
 
+function getAuthHeader() {
+  const token = localStorage.getItem('admin_token');
+  return token ? { 'X-API-Key': token } : {};
+}
+
 export const api = {
   resetCircuit() {
     lastFailureTimestamp = 0;
@@ -109,5 +114,43 @@ export const api = {
 
   async getDailyInsights(dateStr, bypassCircuit = false) {
     return fetchSafe(`/api/v1/insights/daily?target_date=${dateStr}`, { bypassCircuit, timeout: 5000 });
+  },
+
+  async adminLogin(username, password) {
+    const res = await fetchSafe('/api/v1/admin/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username, password }),
+      bypassCircuit: true
+    });
+    if (res.data?.status === 'success') {
+      localStorage.setItem('admin_token', res.data.token);
+    }
+    return res;
+  },
+  
+  async addServer(payload) {
+    return fetchSafe('/api/v1/servers', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...getAuthHeader() },
+      body: JSON.stringify(payload),
+    });
+  },
+
+  async updateServer(serverId, payload) {
+    const encodedId = encodeURIComponent(serverId);
+    return fetchSafe(`/api/v1/servers/${encodedId}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', ...getAuthHeader() },
+      body: JSON.stringify(payload),
+    });
+  },
+
+  async deleteServer(serverId) {
+    const encodedId = encodeURIComponent(serverId);
+    return fetchSafe(`/api/v1/servers/${encodedId}`, {
+      method: 'DELETE',
+      headers: { ...getAuthHeader() }
+    });
   },
 };

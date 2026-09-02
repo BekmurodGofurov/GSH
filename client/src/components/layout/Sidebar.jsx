@@ -42,6 +42,13 @@ export function Sidebar({ currentView, onViewChange, kpis, eventCount, crashCoun
       badge: '24h',
       badgeVariant: 'violet',
     },
+    {
+      id: 'admin',
+      label: 'Admin Panel',
+      icon: ShieldCheck,
+      badge: 'Secure',
+      badgeVariant: 'neutral',
+    },
   ];
 
   return (
