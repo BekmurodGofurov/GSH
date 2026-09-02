@@ -8,7 +8,7 @@ import { EventLogsView } from './components/views/EventLogsView';
 import { AnalyticsView } from './components/views/AnalyticsView';
 import { InsightsView } from './components/views/InsightsView';
 import { ServerDetailModal } from './components/dashboard/ServerDetailModal';
-import { ToastContainer } from './components/common/ToastNotification';
+import { NotificationsDrawer } from './components/common/NotificationsDrawer';
 import { AdminWrapper } from './components/views/AdminWrapper';
 
 export function App() {
@@ -43,7 +43,6 @@ export function App() {
     justReconnected,
     reconnectWs,
     refreshData,
-    audio,
     dailyInsights,
     refreshInsights,
     paginatedOverview,
@@ -58,8 +57,11 @@ export function App() {
     goToFleetPage,
     notifications,
     dismissNotification,
+    clearAllNotifications,
     triggerTestNotification,
   } = useServerData();
+
+  const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
 
   const crashCount = (events || []).filter(
     (e) => (e.event_type || '').toUpperCase() === 'CRASH'
@@ -77,7 +79,6 @@ export function App() {
       isRefreshing={isRefreshing}
       lastSyncTime={lastSyncTime}
       onRefresh={refreshData}
-      audio={audio}
       searchQuery={searchQuery}
       onSearchChange={setSearchQuery}
       kpis={kpis}
@@ -85,6 +86,8 @@ export function App() {
       crashCount={crashCount}
       theme={theme}
       toggleTheme={toggleTheme}
+      onOpenNotifications={() => setIsNotificationsOpen(true)}
+      unreadCount={notifications.length}
     >
       {/* Dynamic View rendering */}
       {currentView === 'overview' && (
@@ -170,7 +173,16 @@ export function App() {
         events={events}
       />
 
-
+      <NotificationsDrawer
+        isOpen={isNotificationsOpen}
+        onClose={() => setIsNotificationsOpen(false)}
+        notifications={notifications}
+        onInspect={(sid) => {
+          const found = servers.find((s) => s.server_id === sid);
+          if (found) setInspectServer(found);
+        }}
+        onClearAll={clearAllNotifications}
+      />
     </Layout>
   );
 }

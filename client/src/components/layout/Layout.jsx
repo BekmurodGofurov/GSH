@@ -15,7 +15,6 @@ export function Layout({
   isRefreshing,
   lastSyncTime,
   onRefresh,
-  audio,
   searchQuery,
   onSearchChange,
   kpis,
@@ -23,6 +22,8 @@ export function Layout({
   crashCount,
   theme,
   toggleTheme,
+  onOpenNotifications,
+  unreadCount,
 }) {
   return (
     <div className="min-h-screen flex flex-col font-sans bg-grid-pattern antialiased">
@@ -33,14 +34,13 @@ export function Layout({
         isRefreshing={isRefreshing}
         lastSyncTime={lastSyncTime}
         onRefresh={onRefresh}
-        audio={audio}
         searchQuery={searchQuery}
         onSearchChange={onSearchChange}
         kpis={kpis}
         theme={theme}
         toggleTheme={toggleTheme}
-        onViewChange={onViewChange}
-        crashCount={crashCount}
+        onOpenNotifications={onOpenNotifications}
+        unreadCount={unreadCount}
       />
 
       {/* Slack / YouTube Style Persistent Connection Banner */}

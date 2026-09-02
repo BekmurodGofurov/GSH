@@ -1,8 +1,6 @@
 import React from 'react';
 import {
   RefreshCw,
-  Volume2,
-  VolumeX,
   Radio,
   Search,
   Globe2,
@@ -21,14 +19,13 @@ export function Header({
   isRefreshing,
   lastSyncTime,
   onRefresh,
-  audio,
   searchQuery,
   onSearchChange,
   kpis,
   theme,
   toggleTheme,
-  onViewChange,
-  crashCount = 0,
+  onOpenNotifications,
+  unreadCount,
 }) {
   const isWsConnected = wsStatus === 'connected';
 
@@ -111,37 +108,6 @@ export function Header({
           )}
         </Button>
 
-        {/* Notifications Bell */}
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => onViewChange && onViewChange('events')}
-          title="View Notifications & Events"
-          className="relative text-slate-600 dark:text-slate-400 hover:text-indigo-500 dark:hover:text-indigo-400"
-        >
-          <Bell className={`w-4 h-4 ${crashCount > 0 ? 'animate-bounce text-rose-500' : ''}`} />
-          {crashCount > 0 && (
-            <span className="absolute -top-1 -right-1 flex h-3 w-3">
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-rose-400 opacity-75"></span>
-              <span className="relative inline-flex rounded-full h-3 w-3 bg-rose-500"></span>
-            </span>
-          )}
-        </Button>
-
-        {/* Audio Mute/Unmute Toggle */}
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={audio.toggleMute}
-          title={audio.isMuted ? 'Unmute Audio Alerts' : 'Mute Audio Alerts'}
-          className={audio.isMuted ? 'text-slate-400' : 'text-cyan-600 dark:text-cyan-400 border-cyan-300 dark:border-cyan-500/30'}
-        >
-          {audio.isMuted ? (
-            <VolumeX className="w-4 h-4" />
-          ) : (
-            <Volume2 className="w-4 h-4" />
-          )}
-        </Button>
 
         {/* Quick Refresh Button */}
         <Button
@@ -162,6 +128,27 @@ export function Header({
             <strong className="text-emerald-600 dark:text-emerald-400">{kpis.onlineServers}</strong>/{kpis.totalServers} Nodes
           </span>
         </div>
+
+        {/* Notifications Toggle */}
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={onOpenNotifications}
+          className="relative text-slate-600 dark:text-slate-400 hover:text-cyan-600 dark:hover:text-cyan-400"
+          title="Notifications"
+        >
+          {unreadCount > 0 ? (
+            <>
+              <Bell className="w-4 h-4 text-cyan-600 dark:text-cyan-400 animate-bounce" />
+              <span className="absolute -top-1 -right-1 flex h-3 w-3">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-cyan-400 opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-3 w-3 bg-cyan-500"></span>
+              </span>
+            </>
+          ) : (
+            <Bell className="w-4 h-4" />
+          )}
+        </Button>
       </div>
     </header>
   );
