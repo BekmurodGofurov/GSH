@@ -8,6 +8,7 @@ import {
   Cpu,
   ShieldCheck,
   TrendingUp,
+  Activity,
 } from 'lucide-react';
 import { cn } from '../../utils/cn';
 import { Badge } from '../common/Badge';
@@ -32,7 +33,7 @@ export function Sidebar({ currentView, onViewChange, kpis, eventCount, crashCoun
       id: 'analytics',
       label: 'Timescale Analytics',
       icon: BarChart3,
-      badge: '1-min',
+      badge: <Activity className="w-3.5 h-3.5" />,
       badgeVariant: 'cyan',
     },
     {

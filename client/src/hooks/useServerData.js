@@ -1,7 +1,6 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { api } from '../services/api';
 import { useWebSocket } from './useWebSocket';
-import { useAudioAlert } from './useAudioAlert';
 
 const CACHE_KEY = 'cs2_dashboard_cache';
 
@@ -86,8 +85,8 @@ export function useServerData() {
     };
 
     setNotifications((prev) => {
-      // Keep max 4 toasts at once, prepend latest
-      return [newToast, ...prev.filter((t) => t.id !== newToast.id)].slice(0, 4);
+      // Keep max 50 notifications at once, prepend latest
+      return [newToast, ...prev.filter((t) => t.id !== newToast.id)].slice(0, 50);
     });
   }, []);
 
@@ -95,7 +94,6 @@ export function useServerData() {
     setNotifications((prev) => prev.filter((t) => t.id !== id));
   }, []);
 
-  const audio = useAudioAlert();
   const wasOfflineRef = useRef(false);
 
   // Synchronize state changes to localStorage
@@ -158,7 +156,6 @@ export function useServerData() {
           const existingIds = new Set(prev.map((e) => e.id));
           const fresh = payload.events.filter((e) => !existingIds.has(e.id));
           if (fresh.length > 0) {
-            audio.triggerAlert(fresh[0].event_type);
             if (isHydratedRef.current) {
               fresh.forEach((ev) => {
                 addNotification(ev);
@@ -176,7 +173,7 @@ export function useServerData() {
 
       syncToStorage({ servers: newServers, events: newEvents });
     },
-    [audio, addNotification, syncToStorage]
+    [addNotification, syncToStorage]
   );
 
   // Fetch full REST data
@@ -453,14 +450,13 @@ export function useServerData() {
       fetchData(true);
     },
     refreshData: () => fetchData(true),
-    audio,
     dailyInsights,
     refreshInsights: fetchDailyInsights,
     // Live Toast Notifications
     notifications,
     dismissNotification,
+    clearAllNotifications: () => setNotifications([]),
     triggerTestNotification: (type = 'CRASH') => {
-      audio.triggerAlert(type);
       const mockEvent = {
         id: `test-${Date.now()}`,
         event_type: type,
