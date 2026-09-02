@@ -39,6 +39,8 @@ export function Layout({
         kpis={kpis}
         theme={theme}
         toggleTheme={toggleTheme}
+        onViewChange={onViewChange}
+        crashCount={crashCount}
       />
 
       {/* Slack / YouTube Style Persistent Connection Banner */}

@@ -170,15 +170,7 @@ export function App() {
         events={events}
       />
 
-      {/* Real-time Toast Notifications (Top-Right, 5s Auto Dismiss) */}
-      <ToastContainer
-        toasts={notifications}
-        onDismiss={dismissNotification}
-        onInspect={(sid) => {
-          const found = servers.find((s) => s.server_id === sid);
-          if (found) setInspectServer(found);
-        }}
-      />
+
     </Layout>
   );
 }

@@ -6,7 +6,7 @@ import { useState, useCallback, useRef, useEffect } from 'react';
 export function useAudioAlert() {
   const [isMuted, setIsMuted] = useState(() => {
     const saved = localStorage.getItem('cs2_monitor_muted');
-    return saved !== null ? JSON.parse(saved) : false;
+    return saved !== null ? JSON.parse(saved) : true;
   });
 
   const audioCtxRef = useRef(null);

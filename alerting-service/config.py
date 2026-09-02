@@ -8,15 +8,15 @@ class Settings(BaseSettings):
         env_file=".env",
         env_file_encoding="utf-8",
         extra="ignore",
-        # Muhit o'zgaruvchisi topilmasa pydantic o'zi xato beradi,
-        # lekin biz quyida yanada aniq xabar chiqaramiz.
+        # Pydantic throws an error if env var is missing,
+        # but we print a clearer message below.
     )
 
     telegram_bot_token: str
     telegram_chat_id: str
     db_url: str
 
-    # Daily rejimi
+    # Daily mode
     report_hour_utc: int = 9
     report_minute_utc: int = 0
     lookback_days: int = 1
@@ -25,7 +25,7 @@ class Settings(BaseSettings):
     send_on_startup: bool = False
 
 
-# Loading — if there's an error, point it out clearly and stop
+# Loading — if error occurs, print clearly and exit
 REQUIRED_VARS = ["TELEGRAM_BOT_TOKEN", "TELEGRAM_CHAT_ID", "DB_URL"]
 
 try:
@@ -51,11 +51,11 @@ except ValidationError as exc:
 
     print(f"""
 📄 What to do:
-  1. Create a .env file at the project root (or fill out the existing one).
+  1. Create a .env file in the project root (or update the existing one).
   2. Add the following REQUIRED lines:
 
-       TELEGRAM_BOT_TOKEN=<token from @BotFather>
-       TELEGRAM_CHAT_ID=<group chat ID, e.g.: -1001234567890>
+       TELEGRAM_BOT_TOKEN=<Token from @BotFather>
+       TELEGRAM_CHAT_ID=<Group chat ID, e.g.: -1001234567890>
        DB_URL=<database connection url>
 
   3. See .env.example for an example.
