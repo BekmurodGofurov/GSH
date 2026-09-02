@@ -124,7 +124,7 @@ async def poll_single_server(server_row, timeout: float = 1.5):
                     "max_players": str(max_players),
                     "ping_ms": str(latency_ms),
                     "tick_rate": str(tick_rate),
-                    "map": map_name,
+                    "map": map_name if map_name is not None else "",
                     "status": status,
                     "timestamp": now.isoformat(),
                 },

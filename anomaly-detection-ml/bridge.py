@@ -64,7 +64,7 @@ def build_root_cause_payload(row: asyncpg.Record, anomaly: dict, affected_count:
         "server_id": row["server_id"],
         "region": row["region"] or "unknown",
         "player_count": curr_players,
-        "max_players": row["max_players"] if row["max_players"] is not None else None,
+        "max_players": row["max_players"] if row["max_players"] is not None else 0,
         "ping_ms": curr_ping,
         "anomaly_score": float(anomaly.get("anomaly_score", 0.8)),
         "ping_delta": curr_ping - float(previous_ping) if previous_ping is not None else 0.0,
