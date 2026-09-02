@@ -1,4 +1,7 @@
-const BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+const BASE_URL = import.meta.env.VITE_API_URL;
+if (!BASE_URL) {
+    throw new Error("VITE_API_URL environment variable is not set.");
+}
 
 // Circuit breaker to avoid network flooding when Gateway is offline
 let lastFailureTimestamp = 0;
