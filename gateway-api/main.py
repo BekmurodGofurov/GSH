@@ -195,7 +195,7 @@ async def get_ping_analytics(minutes: int = Query(10, ge=1, le=60)):
             SELECT 
                 time_bucket('1 minute', time) AS bucket,
                 server_id,
-                ROUND(AVG(ping_ms)::numeric, 2) AS avg_ping,
+                ROUND(AVG(ping_ms) FILTER (WHERE ping_ms > 0)::numeric, 2) AS avg_ping,
                 ROUND(AVG(player_count)::numeric, 1) AS avg_players
             FROM server_metrics
             WHERE time > NOW() - (INTERVAL '1 minute' * $1)
@@ -253,15 +253,15 @@ async def get_daily_ping():
                 ms.server_id,
                 ms.server_name,
                 ms.region,
-                ROUND(AVG(sm.ping_ms)::numeric, 1) AS avg_ping,
-                ROUND(MIN(sm.ping_ms)::numeric, 1) AS best_ping,
+                ROUND(AVG(sm.ping_ms) FILTER (WHERE sm.ping_ms > 0)::numeric, 1) AS avg_ping,
+                ROUND(MIN(sm.ping_ms) FILTER (WHERE sm.ping_ms > 0)::numeric, 1) AS best_ping,
                 COUNT(sm.time) AS sample_count
             FROM monitored_servers ms
             JOIN server_metrics sm
                 ON sm.server_id = ms.server_id
                 AND sm.time >= NOW() - INTERVAL '24 hours'
             GROUP BY ms.server_id, ms.server_name, ms.region
-            HAVING AVG(sm.ping_ms) IS NOT NULL
+            HAVING AVG(sm.ping_ms) FILTER (WHERE sm.ping_ms > 0) IS NOT NULL
             ORDER BY avg_ping ASC;
         """)
         return [dict(r) for r in rows]
