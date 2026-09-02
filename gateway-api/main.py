@@ -39,8 +39,11 @@ import time
 from fastapi import Request, Response
 
 ADMIN_API_KEY = os.getenv("ADMIN_API_KEY", "")
-ADMIN_USERNAME = os.getenv("ADMIN_USERNAME", "")
-ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "")
+ADMIN_USERNAME = os.environ.get("ADMIN_USERNAME")
+ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD")
+
+if not ADMIN_USERNAME or not ADMIN_PASSWORD:
+    raise ValueError("ADMIN_USERNAME and ADMIN_PASSWORD environment variables are not set. Please provide them in the .env file.")
 
 api_key_header = APIKeyHeader(name="X-API-Key", auto_error=False)
 active_sessions = {}
@@ -87,11 +90,12 @@ app = FastAPI(
     lifespan=lifespan
 )
 
-FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:5173").rstrip("/")
+FRONTEND_URLS = os.getenv("FRONTEND_URL", "http://localhost:3000,http://localhost:5173")
+origins = [url.strip().rstrip("/") for url in FRONTEND_URLS.split(",")]
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[FRONTEND_URL],
+    allow_origins=origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

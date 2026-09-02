@@ -60,6 +60,9 @@ services:
     environment:
       DB_URL: "${DB_URL:?DB_URL is required in .env}"
       REDIS_URL: "redis://redis:6379"
+      ADMIN_USERNAME: "${ADMIN_USERNAME:?ADMIN_USERNAME is required in .env}"
+      ADMIN_PASSWORD: "${ADMIN_PASSWORD:?ADMIN_PASSWORD is required in .env}"
+      FRONTEND_URL: "${FRONTEND_URL:-http://localhost:3000}"
     depends_on:
       timescaledb:
         condition: service_healthy
