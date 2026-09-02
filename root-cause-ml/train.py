@@ -15,7 +15,9 @@ from scipy.sparse import hstack
 
 ROOT_DIR = Path(__file__).resolve().parent
 MODELS_DIR = ROOT_DIR / "models"
-DB_URL = os.getenv("DB_URL", "postgresql://postgres:postgrespassword@localhost:5433/game_monitor")
+DB_URL = os.getenv("DB_URL")
+if not DB_URL:
+    raise ValueError("DB_URL environment variable is not set. Please provide it in the .env file.")
 
 NUMERIC_FEATURES = [
     "player_count", "max_players", "ping_ms", "anomaly_score",

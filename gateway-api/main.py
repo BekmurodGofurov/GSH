@@ -27,8 +27,15 @@ class EventLabelRequest(BaseModel):
         description="SERVER_CRASH, HIGH_LATENCY, DDOS_ATTACK, REGIONAL_OUTAGE, PLAYER_DROP, MAINTENANCE"
     )
 
-DB_URL = os.getenv("DB_URL", "postgresql://postgres:postgrespassword@localhost:5433/game_monitor")
+DB_URL = os.getenv("DB_URL")
+if not DB_URL:
+    raise ValueError("DB_URL environment variable is not set. Please provide it in the .env file.")
 db_pool = None
+
+def get_db_pool():
+    if db_pool is None:
+        raise RuntimeError("Database pool is not initialized. Please ensure the DB_URL is correct and the database is running.")
+    return db_pool
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -82,7 +89,7 @@ LATEST_SERVERS_QUERY = """
 @app.post("/api/v1/servers", status_code=201)
 async def add_monitored_server(data: ServerCreate):
     """Add or update a monitored CS2 server via Admin or Frontend"""
-    async with db_pool.acquire() as conn:
+    async with get_db_pool().acquire() as conn:
         await conn.execute("""
             INSERT INTO monitored_servers (server_id, server_name, region, status)
             VALUES ($1, $2, $3, 'OFFLINE')
@@ -95,13 +102,13 @@ async def add_monitored_server(data: ServerCreate):
 
 @app.get("/api/v1/servers")
 async def get_servers():
-    async with db_pool.acquire() as conn:
+    async with get_db_pool().acquire() as conn:
         rows = await conn.fetch(LATEST_SERVERS_QUERY)
         return [dict(r) for r in rows]
 
 @app.get("/api/v1/servers/{server_id:path}/metrics")
 async def get_server_metrics(server_id: str, limit: int = Query(30, ge=5, le=300)):
-    async with db_pool.acquire() as conn:
+    async with get_db_pool().acquire() as conn:
         rows = await conn.fetch("""
             SELECT time, player_count, max_players, ping_ms
             FROM server_metrics
@@ -113,7 +120,7 @@ async def get_server_metrics(server_id: str, limit: int = Query(30, ge=5, le=300
 
 @app.get("/api/v1/events")
 async def get_events(limit: int = Query(50, ge=1, le=200)):
-    async with db_pool.acquire() as conn:
+    async with get_db_pool().acquire() as conn:
         rows = await conn.fetch("""
             SELECT id, time, server_id, event_type, root_cause, label_source, message,
                    anomaly_score, anomaly_reasons, diagnosis
@@ -125,7 +132,7 @@ async def get_events(limit: int = Query(50, ge=1, le=200)):
 
 @app.get("/api/v1/analytics/ping-buckets")
 async def get_ping_analytics(minutes: int = Query(10, ge=1, le=60)):
-    async with db_pool.acquire() as conn:
+    async with get_db_pool().acquire() as conn:
         rows = await conn.fetch("""
             SELECT 
                 time_bucket('1 minute', time) AS bucket,
@@ -142,7 +149,7 @@ async def get_ping_analytics(minutes: int = Query(10, ge=1, le=60)):
 @app.get("/api/v1/analytics/daily-restarts")
 async def get_daily_restarts():
     """How many times each server went offline in the last 24 hours."""
-    async with db_pool.acquire() as conn:
+    async with get_db_pool().acquire() as conn:
         rows = await conn.fetch("""
             SELECT
                 ms.server_id,
@@ -161,7 +168,7 @@ async def get_daily_restarts():
 @app.get("/api/v1/analytics/daily-busy")
 async def get_daily_busy():
     """Average and peak player counts per server over the last 24 hours."""
-    async with db_pool.acquire() as conn:
+    async with get_db_pool().acquire() as conn:
         rows = await conn.fetch("""
             SELECT
                 ms.server_id,
@@ -182,7 +189,7 @@ async def get_daily_busy():
 @app.get("/api/v1/analytics/daily-ping")
 async def get_daily_ping():
     """Average and best ping per server over the last 24 hours (only servers with data)."""
-    async with db_pool.acquire() as conn:
+    async with get_db_pool().acquire() as conn:
         rows = await conn.fetch("""
             SELECT
                 ms.server_id,
@@ -205,7 +212,7 @@ from datetime import date
 @app.get("/api/v1/insights/daily")
 async def get_daily_insights(target_date: date = Query(..., description="Target date in YYYY-MM-DD format")):
     """Get the cached daily report data for the specified date."""
-    async with db_pool.acquire() as conn:
+    async with get_db_pool().acquire() as conn:
         # Check daily_reports
         row = await conn.fetchrow("""
             SELECT json_data 
@@ -237,7 +244,7 @@ async def websocket_endpoint(websocket: WebSocket):
     await websocket.accept()
     try:
         while True:
-            async with db_pool.acquire() as conn:
+            async with get_db_pool().acquire() as conn:
                 servers = await conn.fetch(LATEST_SERVERS_QUERY)
                 events = await conn.fetch(
                     "SELECT * FROM server_events ORDER BY time DESC LIMIT 5;"
@@ -254,7 +261,7 @@ async def websocket_endpoint(websocket: WebSocket):
 @app.post("/api/v1/events/{event_id}/label")
 async def update_event_label(event_id: int, payload: EventLabelRequest):
     """Update or verify the root cause label of an incident (Active Learning)."""
-    async with db_pool.acquire() as conn:
+    async with get_db_pool().acquire() as conn:
         result = await conn.execute("""
             UPDATE server_events
             SET root_cause = $1, label_source = 'manual'

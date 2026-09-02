@@ -6,7 +6,9 @@ import asyncpg
 # Support standalone and container imports for shared_schemas
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-DB_URL = os.getenv("DB_URL") or "postgresql://postgres:postgrespassword@localhost:5433/game_monitor"
+DB_URL = os.getenv("DB_URL")
+if not DB_URL:
+    raise ValueError("DB_URL environment variable is not set. Please provide it in the .env file.")
 db_pool: asyncpg.Pool | None = None
 
 DEFAULT_SERVERS = [

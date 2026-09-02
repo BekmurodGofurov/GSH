@@ -1,6 +1,9 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 
-const DEFAULT_WS_URL = import.meta.env.VITE_WS_URL || 'ws://localhost:8000/ws/live';
+const DEFAULT_WS_URL = import.meta.env.VITE_WS_URL;
+if (!DEFAULT_WS_URL) {
+    console.error("VITE_WS_URL environment variable is not set.");
+}
 
 const BACKOFF_SCHEDULE = [3000, 6000, 12000, 20000];
 

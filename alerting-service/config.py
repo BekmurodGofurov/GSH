@@ -56,7 +56,7 @@ except ValidationError as exc:
 
        TELEGRAM_BOT_TOKEN=<@BotFather dan olingan token>
        TELEGRAM_CHAT_ID=<guruh chat ID, masalan: -1001234567890>
-       DB_URL=postgresql://postgres:postgrespassword@timescaledb:5432/game_monitor
+       DB_URL=<database connection url>
 
   3. Namuna uchun: .env.example faylini ko'ring.
 
