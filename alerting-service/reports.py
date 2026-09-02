@@ -44,18 +44,18 @@ class AvgPingResult(TypedDict):
 
 class DailyReport(TypedDict):
     report_date: str
-    window_label: str          # "So'nggi 5 daqiqa" yoki "Bugun (28-avg)"
+    window_label: str          # e.g., "Last 5 minutes" or "Last 1 days"
     highest_ping: HighestPingResult | None
-    avg_pings: list[AvgPingResult]   # top 3 eng yuqori avg ping serverlar
+    avg_pings: list[AvgPingResult]   # top 3 highest average ping servers
     top_crashers: list[TopCrasherResult]
     event_summary: EventSummary
     server_statuses: ServerStatusSummary
 
 def _time_window(lookback_minutes: int | None = None, lookback_days: int | None = None) -> tuple[datetime, datetime]:
     """
-    Tahlil uchun vaqt oynasini qaytaradi.
-    lookback_minutes berilsa — minutlar bo'yicha,
-    lookback_days berilsa — kunlar bo'yicha.
+    Returns the time window for analysis.
+    If lookback_minutes is provided, returns window in minutes.
+    If lookback_days is provided, returns window in days.
     """
     now = datetime.now(timezone.utc)
     if lookback_minutes is not None:
@@ -71,7 +71,7 @@ async def get_highest_ping(
     lookback_minutes: int | None = None,
     lookback_days: int | None = None,
 ) -> HighestPingResult | None:
-    """Eng baland ping qayd etilgan server va vaqtni qaytaradi."""
+    """Returns the server and time with the highest recorded ping."""
     start, end = _time_window(lookback_minutes, lookback_days)
     query = """
         SELECT
@@ -109,7 +109,7 @@ async def get_avg_pings(
     lookback_days: int | None = None,
     limit: int = 3,
 ) -> list[AvgPingResult]:
-    """Vaqt oynasida o'rtacha ping bo'yicha TOP N server."""
+    """Top N servers by average ping in the time window."""
     start, end = _time_window(lookback_minutes, lookback_days)
     query = """
         SELECT
@@ -146,7 +146,7 @@ async def get_top_crashers(
     lookback_days: int | None = None,
     limit: int = 5,
 ) -> list[TopCrasherResult]:
-    """Eng ko'p CRASH / OFFLINE event bo'lgan serverlar."""
+    """Servers with the most CRASH / OFFLINE events."""
     start, end = _time_window(lookback_minutes, lookback_days)
     query = """
         SELECT
@@ -182,7 +182,7 @@ async def get_event_summary(
     lookback_minutes: int | None = None,
     lookback_days: int | None = None,
 ) -> EventSummary:
-    """Voqealar turi bo'yicha soni."""
+    """Number of events by type."""
     start, end = _time_window(lookback_minutes, lookback_days)
     query = """
         SELECT event_type, COUNT(*) AS cnt
@@ -210,7 +210,7 @@ async def get_event_summary(
 
 
 async def get_server_statuses(pool: asyncpg.Pool) -> ServerStatusSummary:
-    """Hozirgi ONLINE/OFFLINE holatlar soni (vaqt oynasiga bog'liq emas)."""
+    """Current ONLINE/OFFLINE counts (independent of time window)."""
     query = """
         SELECT
             COUNT(*)                                      AS total,
@@ -232,7 +232,7 @@ async def build_report(
     lookback_minutes: int | None = None,
     lookback_days: int | None = None,
 ) -> DailyReport:
-    """Barcha so'rovlarni parallel ravishda bajarib, to'liq hisobot qaytaradi."""
+    """Runs all queries in parallel and returns a full report."""
 
     kwargs = dict(lookback_minutes=lookback_minutes, lookback_days=lookback_days)
 
@@ -254,9 +254,9 @@ async def build_report(
     report_date = now_utc.strftime("%Y-%m-%d %H:%M UTC")
 
     if lookback_minutes is not None:
-        window_label = f"So'nggi {lookback_minutes} daqiqa"
+        window_label = f"Last {lookback_minutes} minutes"
     else:
-        window_label = f"So'nggi {lookback_days} kun"
+        window_label = f"Last {lookback_days} days"
 
     return DailyReport(
         report_date=report_date,

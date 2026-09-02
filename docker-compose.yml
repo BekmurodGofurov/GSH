@@ -19,6 +19,25 @@ services:
       retries: 10
     restart: unless-stopped
 
+  db-migrations:
+    image: postgres:15-alpine
+    container_name: gsh-db-migrations
+    environment:
+      DB_URL: "postgresql://postgres:${POSTGRES_PASSWORD}@timescaledb:5432/game_monitor"
+    volumes:
+      - ./migrations:/migrations
+    command: >
+      sh -c "
+        for f in /migrations/*.sql; do
+          echo \"Applying migration $$f\";
+          psql \"$$DB_URL\" -f \"$$f\" || exit 1;
+        done
+        echo \"Migrations applied successfully.\"
+      "
+    depends_on:
+      timescaledb:
+        condition: service_healthy
+
   redis:
     image: redis:7-alpine
     container_name: gsh-redis

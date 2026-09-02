@@ -69,13 +69,6 @@ app = FastAPI(
     description="ML-powered root-cause diagnosis for game server health anomalies"
 )
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
 
 
 @app.get("/health")

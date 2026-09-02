@@ -43,7 +43,6 @@ export function App() {
     justReconnected,
     reconnectWs,
     refreshData,
-    audio,
     dailyInsights,
     refreshInsights,
     paginatedOverview,
@@ -80,7 +79,6 @@ export function App() {
       isRefreshing={isRefreshing}
       lastSyncTime={lastSyncTime}
       onRefresh={refreshData}
-      audio={audio}
       searchQuery={searchQuery}
       onSearchChange={setSearchQuery}
       kpis={kpis}
