@@ -93,8 +93,7 @@ def generate_synthetic_bootstrap_data(n_samples: int = 300) -> pd.DataFrame:
 
 
 async def load_training_data() -> pd.DataFrame:
-    if not DB_URL:
-        raise ValueError("DB_URL environment variable is not set. Please provide it in the .env file.")
+
     try:
         conn = await asyncpg.connect(DB_URL)
         rows = await conn.fetch("""

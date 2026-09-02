@@ -34,7 +34,10 @@ db_pool = None
 
 def get_db_pool():
     if db_pool is None:
-        raise RuntimeError("Database pool is not initialized. Please ensure the DB_URL is correct and the database is running.")
+        raise HTTPException(
+            status_code=503,
+            detail="Database connection is not ready yet. Please retry shortly.",
+        )
     return db_pool
 
 @asynccontextmanager
