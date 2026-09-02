@@ -1,10 +1,14 @@
 import asyncio
 import json
 import os
+import logging
 from datetime import datetime, timedelta, timezone
 
 import asyncpg
 import httpx
+
+logging.basicConfig(level=logging.INFO, format="%(message)s")
+logger = logging.getLogger(__name__)
 
 DB_URL = os.getenv("DB_URL")
 ANOMALY_API_URL = os.getenv("ANOMALY_API_URL", "http://localhost:8002/predict/anomaly")
@@ -13,7 +17,7 @@ POLL_INTERVAL_SECONDS = float(os.getenv("BRIDGE_POLL_INTERVAL", "5"))
 REGIONAL_INCIDENT_WINDOW = timedelta(minutes=1)
 
 
-async def fetch_new_metrics(pool: asyncpg.Pool, last_seen: datetime):
+async def fetch_new_metrics(pool: asyncpg.Pool, last_seen_time: datetime, last_seen_server_id: str):
     """Fetch each metric with its preceding measurement for delta features."""
     query = """
         SELECT sm.time, sm.server_id, sm.player_count, sm.max_players, sm.ping_ms,
@@ -29,11 +33,11 @@ async def fetch_new_metrics(pool: asyncpg.Pool, last_seen: datetime):
             ORDER BY previous_metric.time DESC
             LIMIT 1
         ) previous ON TRUE
-        WHERE sm.time > $1
-        ORDER BY sm.time ASC;
+        WHERE (sm.time, sm.server_id) > ($1, $2)
+        ORDER BY sm.time ASC, sm.server_id ASC;
     """
     async with pool.acquire() as conn:
-        return await conn.fetch(query, last_seen)
+        return await conn.fetch(query, last_seen_time, last_seen_server_id)
 
 
 def build_anomaly_payload(row: asyncpg.Record) -> dict:
@@ -60,7 +64,7 @@ def build_root_cause_payload(row: asyncpg.Record, anomaly: dict, affected_count:
         "server_id": row["server_id"],
         "region": row["region"] or "unknown",
         "player_count": curr_players,
-        "max_players": int(row["max_players"] or 32),
+        "max_players": row["max_players"] if row["max_players"] is not None else None,
         "ping_ms": curr_ping,
         "anomaly_score": float(anomaly.get("anomaly_score", 0.8)),
         "ping_delta": curr_ping - float(previous_ping) if previous_ping is not None else 0.0,
@@ -76,7 +80,7 @@ async def post_json(client: httpx.AsyncClient, url: str, payload: dict, service:
         response.raise_for_status()
         return response.json()
     except httpx.HTTPError as exc:
-        print(f"{service} request failed: {exc}")
+        logger.error(f"{service} request failed: {exc}")
         return None
 
 
@@ -130,15 +134,16 @@ async def record_labeled_event(
 
 async def run_bridge():
     pool = await asyncpg.create_pool(DB_URL)
-    last_seen = datetime.now(timezone.utc)
+    last_seen_time = datetime.now(timezone.utc)
+    last_seen_server_id = ""
     regional_incidents: dict[str, dict[str, datetime]] = {}
 
-    print(f"Bridge Auto-Labeler started. Anomaly API: {ANOMALY_API_URL} | Root-Cause API: {ROOT_CAUSE_API_URL}")
+    logger.info(f"Bridge Auto-Labeler started. Anomaly API: {ANOMALY_API_URL} | Root-Cause API: {ROOT_CAUSE_API_URL}")
 
     async with httpx.AsyncClient() as client:
         while True:
             try:
-                rows = await fetch_new_metrics(pool, last_seen)
+                rows = await fetch_new_metrics(pool, last_seen_time, last_seen_server_id)
                 for row in rows:
                     anomaly = await post_json(client, ANOMALY_API_URL, build_anomaly_payload(row), "Anomaly API")
                     if anomaly is None:
@@ -176,14 +181,15 @@ async def run_bridge():
                                 affected_count,
                             )
                         except Exception as exc:
-                            print(f"Could not persist labeled event: {exc}")
+                            logger.error(f"Could not persist labeled event: {exc}")
 
                         cause = diagnosis["primary_cause"] if diagnosis else "UNKNOWN"
-                        print(f"[LABELED] server={row['server_id']} score={anomaly['anomaly_score']} root_cause={cause}")
+                        logger.info(f"[LABELED] server={row['server_id']} score={anomaly['anomaly_score']} root_cause={cause}")
 
-                    last_seen = row["time"]
+                    last_seen_time = row["time"]
+                    last_seen_server_id = row["server_id"]
             except Exception as e:
-                print(f"Bridge poll error: {e}")
+                logger.error(f"Bridge poll error: {e}")
 
             await asyncio.sleep(POLL_INTERVAL_SECONDS)
 

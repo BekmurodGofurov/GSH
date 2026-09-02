@@ -25,7 +25,7 @@ class Settings(BaseSettings):
     send_on_startup: bool = False
 
 
-# Yüklash — xato bo'lsa aniq ko'rsatib to'xtatadi
+# Loading — if there's an error, point it out clearly and stop
 REQUIRED_VARS = ["TELEGRAM_BOT_TOKEN", "TELEGRAM_CHAT_ID", "DB_URL"]
 
 try:
@@ -38,27 +38,27 @@ except ValidationError as exc:
             missing.append(field.upper())
 
     print("\n" + "=" * 60, flush=True)
-    print("❌  ALERTING SERVICE ISHGA TUSHMADI", flush=True)
+    print("❌  ALERTING SERVICE FAILED TO START", flush=True)
     print("=" * 60, flush=True)
 
     if missing:
-        print(f"\n🔴 Quyidagi MAJBURIY o'zgaruvchilar .env faylda topilmadi:\n", flush=True)
+        print(f"\n🔴 The following REQUIRED variables were not found in the .env file:\n", flush=True)
         for var in missing:
             print(f"     ➜  {var}", flush=True)
     else:
-        print("\n🔴 Konfiguratsiya xatosi:", flush=True)
+        print("\n🔴 Configuration error:", flush=True)
         print(exc, flush=True)
 
     print(f"""
-📄 Nima qilish kerak:
-  1. Loyiha ildizida .env fayl yarating (yoki mavjudini to'ldiring).
-  2. Quyidagi MAJBURIY qatorlarni qo'shing:
+📄 What to do:
+  1. Create a .env file at the project root (or fill out the existing one).
+  2. Add the following REQUIRED lines:
 
-       TELEGRAM_BOT_TOKEN=<@BotFather dan olingan token>
-       TELEGRAM_CHAT_ID=<guruh chat ID, masalan: -1001234567890>
+       TELEGRAM_BOT_TOKEN=<token from @BotFather>
+       TELEGRAM_CHAT_ID=<group chat ID, e.g.: -1001234567890>
        DB_URL=<database connection url>
 
-  3. Namuna uchun: .env.example faylini ko'ring.
+  3. See .env.example for an example.
 
 {'=' * 60}
 """, flush=True)
