@@ -179,7 +179,7 @@ async def poll_and_alert_new_events(bot: Bot, pool: asyncpg.Pool) -> None:
                     if i < len(rows) - 1:
                         await asyncio.sleep(1.5)
                 except Exception as e:
-                    logger.error(f"Alert yuborishda xatolik: {e}")
+                    logger.error(f"Error sending alert: {e}")
 
             if alerted_ids:
                 await conn.execute("UPDATE server_events SET is_alerted = TRUE WHERE id = ANY($1)", alerted_ids)
@@ -191,8 +191,8 @@ async def poll_and_alert_new_events(bot: Bot, pool: asyncpg.Pool) -> None:
 
 def create_bot_with_timeout() -> Bot:
     """
-    aiogram Bot ni uzaytirilgan timeout bilan yaratadi.
-    Default aiogram timeout 5 soniya — biz 30 soniyaga oshiramiz.
+    Creates aiogram Bot with extended timeout.
+    Default aiogram timeout is 5 seconds — increased to 30 seconds.
     """
     session = AiohttpSession(timeout=SEND_TIMEOUT)
     return Bot(token=settings.telegram_bot_token, session=session)
@@ -200,7 +200,7 @@ def create_bot_with_timeout() -> Bot:
 
 def create_scheduler(bot: Bot, pool: asyncpg.Pool) -> AsyncIOScheduler:
     """
-    Faqat Daily rejimi (CronTrigger har kuni HH:MM UTC da) ishlaydi.
+    Only Daily mode (CronTrigger every day at HH:MM UTC) runs.
     """
     scheduler = AsyncIOScheduler(timezone="UTC")
 
@@ -210,29 +210,29 @@ def create_scheduler(bot: Bot, pool: asyncpg.Pool) -> AsyncIOScheduler:
         timezone="UTC",
     )
     logger.info(
-        "🕐 Scheduler: DAILY — har kuni %02d:%02d UTC da hisobot yuboriladi.",
+        "🕐 Scheduler: DAILY — sending report every day at %02d:%02d UTC.",
         settings.report_hour_utc,
         settings.report_minute_utc,
     )
 
-    # Kunlik Hisobot
+    # Daily Report
     scheduler.add_job(
         send_report,
         trigger=trigger,
         kwargs={"bot": bot, "pool": pool},
         id="report_job",
-        name="Server hisoboti",
+        name="Server report",
         replace_existing=True,
         misfire_grace_time=60,
     )
     
-    # Tezkor anomaliya alerting
+    # Rapid anomaly alerting
     scheduler.add_job(
         poll_and_alert_new_events,
         trigger=IntervalTrigger(seconds=15),
         kwargs={"bot": bot, "pool": pool},
         id="alert_job",
-        name="Anomaliya tekshiruvi",
+        name="Anomaly check",
         replace_existing=True,
         max_instances=1,
     )

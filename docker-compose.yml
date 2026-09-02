@@ -110,15 +110,15 @@ services:
       context: ./alerting-service
     container_name: gsh-alerting-service
     environment:
-      # Barcha qiymatlar .env fayldan olinadi — hardcoded qiymat YO'Q
+      # All values are obtained from the .env file — NO hardcoded values
       DB_URL: "${DB_URL:?DB_URL is required in .env}"
       TELEGRAM_BOT_TOKEN: "${TELEGRAM_BOT_TOKEN:?TELEGRAM_BOT_TOKEN is required in .env}"
       TELEGRAM_CHAT_ID: "${TELEGRAM_CHAT_ID:?TELEGRAM_CHAT_ID is required in .env}"
-      # Daily rejimi (production):
+      # Daily mode (production):
       REPORT_HOUR_UTC: "${REPORT_HOUR_UTC:-9}"
       REPORT_MINUTE_UTC: "${REPORT_MINUTE_UTC:-0}"
       LOOKBACK_DAYS: "${LOOKBACK_DAYS:-1}"
-      # Startup da darhol bitta hisobot yuborish:
+      # Send a report immediately on startup:
       SEND_ON_STARTUP: "${SEND_ON_STARTUP:-false}"
     depends_on:
       timescaledb:

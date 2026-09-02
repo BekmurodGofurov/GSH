@@ -34,19 +34,26 @@ DB_URL = os.getenv("DB_URL")
 if not DB_URL:
     raise ValueError("DB_URL environment variable is not set. Please provide it in the .env file.")
 
-ADMIN_API_KEY = os.getenv("ADMIN_API_KEY")
-ADMIN_USERNAME = os.getenv("ADMIN_USERNAME")
-ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD")
+import secrets
+from fastapi import Request, Response
 
-if not all([ADMIN_API_KEY, ADMIN_USERNAME, ADMIN_PASSWORD]):
-    raise ValueError("ADMIN_API_KEY, ADMIN_USERNAME, and ADMIN_PASSWORD must be set in the .env file.")
+ADMIN_API_KEY = os.getenv("ADMIN_API_KEY", "")
+ADMIN_USERNAME = os.getenv("ADMIN_USERNAME", "")
+ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "")
 
-api_key_header = APIKeyHeader(name="X-API-Key", auto_error=True)
+api_key_header = APIKeyHeader(name="X-API-Key", auto_error=False)
+active_sessions = set()
 
-async def verify_api_key(api_key: str = Security(api_key_header)):
-    if api_key != ADMIN_API_KEY:
-        raise HTTPException(status_code=403, detail="Unauthorized")
-    return api_key
+async def verify_api_key(request: Request, api_key: str = Security(api_key_header)):
+    if ADMIN_API_KEY and api_key:
+        if secrets.compare_digest(api_key, ADMIN_API_KEY):
+            return api_key
+            
+    session_token = request.cookies.get("admin_session")
+    if session_token and session_token in active_sessions:
+        return session_token
+        
+    raise HTTPException(status_code=403, detail="Unauthorized")
 
 db_pool = None
 
@@ -72,7 +79,7 @@ app = FastAPI(
     lifespan=lifespan
 )
 
-FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:5173")
+FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:5173").rstrip("/")
 
 app.add_middleware(
     CORSMiddleware,
@@ -114,14 +121,32 @@ class LoginRequest(BaseModel):
     password: str
 
 @app.post("/api/v1/admin/login")
-async def admin_login(creds: LoginRequest):
-    if creds.username == ADMIN_USERNAME and creds.password == ADMIN_PASSWORD:
-        return {"status": "success", "token": ADMIN_API_KEY}
+async def admin_login(creds: LoginRequest, response: Response):
+    if not ADMIN_USERNAME or not ADMIN_PASSWORD:
+        raise HTTPException(status_code=403, detail="Admin feature disabled")
+        
+    if secrets.compare_digest(creds.username, ADMIN_USERNAME) and secrets.compare_digest(creds.password, ADMIN_PASSWORD):
+        session_token = secrets.token_urlsafe(32)
+        active_sessions.add(session_token)
+        response.set_cookie(key="admin_session", value=session_token, httponly=True, samesite="lax")
+        return {"status": "success"}
     raise HTTPException(status_code=401, detail="Invalid credentials")
+
+@app.get("/api/v1/admin/me")
+async def admin_me(api_key: str = Depends(verify_api_key)):
+    return {"status": "authenticated"}
+
+@app.post("/api/v1/admin/logout")
+async def admin_logout(request: Request, response: Response):
+    session_token = request.cookies.get("admin_session")
+    if session_token in active_sessions:
+        active_sessions.remove(session_token)
+    response.delete_cookie("admin_session")
+    return {"status": "success"}
 
 @app.post("/api/v1/servers", status_code=201)
 async def add_monitored_server(data: ServerCreate, api_key: str = Depends(verify_api_key)):
-    """Add or update a monitored CS2 server via Admin or Frontend"""
+    """Add or update a monitored CS2 server (requires admin API key)."""
     async with get_db_pool().acquire() as conn:
         await conn.execute("""
             INSERT INTO monitored_servers (server_id, server_name, region, status)
@@ -170,7 +195,7 @@ async def get_ping_analytics(minutes: int = Query(10, ge=1, le=60)):
             SELECT 
                 time_bucket('1 minute', time) AS bucket,
                 server_id,
-                ROUND(AVG(ping_ms)::numeric, 2) AS avg_ping,
+                ROUND(AVG(ping_ms) FILTER (WHERE ping_ms > 0)::numeric, 2) AS avg_ping,
                 ROUND(AVG(player_count)::numeric, 1) AS avg_players
             FROM server_metrics
             WHERE time > NOW() - (INTERVAL '1 minute' * $1)
@@ -228,15 +253,15 @@ async def get_daily_ping():
                 ms.server_id,
                 ms.server_name,
                 ms.region,
-                ROUND(AVG(sm.ping_ms)::numeric, 1) AS avg_ping,
-                ROUND(MIN(sm.ping_ms)::numeric, 1) AS best_ping,
+                ROUND(AVG(sm.ping_ms) FILTER (WHERE sm.ping_ms > 0)::numeric, 1) AS avg_ping,
+                ROUND(MIN(sm.ping_ms) FILTER (WHERE sm.ping_ms > 0)::numeric, 1) AS best_ping,
                 COUNT(sm.time) AS sample_count
             FROM monitored_servers ms
             JOIN server_metrics sm
                 ON sm.server_id = ms.server_id
                 AND sm.time >= NOW() - INTERVAL '24 hours'
             GROUP BY ms.server_id, ms.server_name, ms.region
-            HAVING AVG(sm.ping_ms) IS NOT NULL
+            HAVING AVG(sm.ping_ms) FILTER (WHERE sm.ping_ms > 0) IS NOT NULL
             ORDER BY avg_ping ASC;
         """)
         return [dict(r) for r in rows]
@@ -303,6 +328,7 @@ async def update_event_label(event_id: int, payload: EventLabelRequest, api_key:
         if result == "UPDATE 0":
             raise HTTPException(status_code=404, detail="Incident not found")
     return {"status": "success", "event_id": event_id, "root_cause": payload.root_cause, "label_source": "manual"}
+
 @app.put("/api/v1/servers/{server_id:path}")
 async def update_monitored_server(server_id: str, data: ServerCreate, api_key: str = Depends(verify_api_key)):
     """Update a monitored CS2 server."""

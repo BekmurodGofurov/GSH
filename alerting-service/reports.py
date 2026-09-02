@@ -84,7 +84,7 @@ async def get_highest_ping(
         JOIN monitored_servers ms ON ms.server_id = sm.server_id
         WHERE sm.time >= $1
           AND sm.time <  $2
-          AND sm.ping_ms IS NOT NULL
+          AND sm.ping_ms > 0
         ORDER BY sm.ping_ms DESC
         LIMIT 1;
     """
@@ -121,7 +121,7 @@ async def get_avg_pings(
         JOIN monitored_servers ms ON ms.server_id = sm.server_id
         WHERE sm.time >= $1
           AND sm.time <  $2
-          AND sm.ping_ms IS NOT NULL
+          AND sm.ping_ms > 0
         GROUP BY sm.server_id, ms.server_name, ms.region
         ORDER BY avg_ping_ms DESC
         LIMIT $3;

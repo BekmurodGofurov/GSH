@@ -34,6 +34,7 @@ async function fetchSafe(endpoint, options = {}) {
 
   try {
     const response = await fetch(`${BASE_URL}${endpoint}`, {
+      credentials: 'include',
       ...fetchOptions,
       signal: controller.signal,
       headers: {
@@ -65,10 +66,7 @@ async function fetchSafe(endpoint, options = {}) {
   }
 }
 
-function getAuthHeader() {
-  const token = localStorage.getItem('admin_token');
-  return token ? { 'X-API-Key': token } : {};
-}
+
 
 export const api = {
   resetCircuit() {
@@ -117,22 +115,26 @@ export const api = {
   },
 
   async adminLogin(username, password) {
-    const res = await fetchSafe('/api/v1/admin/login', {
+    return await fetchSafe('/api/v1/admin/login', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ username, password }),
       bypassCircuit: true
     });
-    if (res.data?.status === 'success') {
-      localStorage.setItem('admin_token', res.data.token);
-    }
-    return res;
+  },
+  
+  async adminLogout() {
+    return await fetchSafe('/api/v1/admin/logout', { method: 'POST', bypassCircuit: true });
+  },
+  
+  async verifyAdmin() {
+    return await fetchSafe('/api/v1/admin/me', { bypassCircuit: true });
   },
   
   async addServer(payload) {
     return fetchSafe('/api/v1/servers', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', ...getAuthHeader() },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
     });
   },
@@ -141,7 +143,7 @@ export const api = {
     const encodedId = encodeURIComponent(serverId);
     return fetchSafe(`/api/v1/servers/${encodedId}`, {
       method: 'PUT',
-      headers: { 'Content-Type': 'application/json', ...getAuthHeader() },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
     });
   },
@@ -150,7 +152,7 @@ export const api = {
     const encodedId = encodeURIComponent(serverId);
     return fetchSafe(`/api/v1/servers/${encodedId}`, {
       method: 'DELETE',
-      headers: { ...getAuthHeader() }
+      
     });
   },
 };

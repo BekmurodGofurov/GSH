@@ -2,10 +2,14 @@ import os
 import sys
 import time
 import asyncio
+import logging
 from pathlib import Path
 from datetime import datetime, timezone
 import a2s
 from redis.asyncio import Redis
+
+logging.basicConfig(level=logging.INFO, format="%(message)s")
+logger = logging.getLogger(__name__)
 
 # Support standalone and container imports for shared_schemas
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -20,9 +24,9 @@ async def init_redis():
     try:
         redis_client = Redis.from_url(REDIS_URL, decode_responses=True)
         await redis_client.ping()
-        print(" Connected to Redis Streams for metric publishing.")
+        logger.info(" Connected to Redis Streams for metric publishing.")
     except Exception as e:
-        print(f" Redis connection unavailable (metrics stored in DB only): {e}")
+        logger.warning(f" Redis connection unavailable (metrics stored in DB only): {e}")
         redis_client = None
 
 async def close_redis():
@@ -69,14 +73,15 @@ async def poll_single_server(server_row, timeout: float = 1.5):
         server_name = info.server_name or fallback_name
         player_count = info.player_count
         max_players = info.max_players
-        map_name = getattr(info, "map_name", None) or "de_mirage"
+        map_name = getattr(info, "map_name", None)
         
         # Calculate tick rate from keywords or default CS2 value
         tick_rate = 128.0
         keywords = getattr(info, "keywords", "") or ""
-        if "64" in keywords:
+        keyword_list = keywords.split(",")
+        if "64" in keyword_list:
             tick_rate = 64.0
-        elif "128" in keywords:
+        elif "128" in keyword_list:
             tick_rate = 128.0
             
         status = "ONLINE"
@@ -119,7 +124,7 @@ async def poll_single_server(server_row, timeout: float = 1.5):
                     "max_players": str(max_players),
                     "ping_ms": str(latency_ms),
                     "tick_rate": str(tick_rate),
-                    "map": map_name,
+                    "map": map_name if map_name is not None else "",
                     "status": status,
                     "timestamp": now.isoformat(),
                 },
@@ -131,7 +136,7 @@ async def poll_single_server(server_row, timeout: float = 1.5):
     return {"server_id": server_id, "status": status, "ping": latency_ms, "players": player_count, "tick_rate": tick_rate}
 
 async def start_polling_loop():
-    print(" Dynamic UDP A2S Monitoring background task started...")
+    logger.info(" Dynamic UDP A2S Monitoring background task started...")
     while True:
         try:
             pool = get_db_pool()
@@ -147,23 +152,23 @@ async def start_polling_loop():
                     results = await asyncio.gather(*tasks)
                     total_time = round((time.perf_counter() - batch_start) * 1000, 2)
                     online_count = sum(1 for r in results if r["status"] == "ONLINE")
-                    print(f"[{datetime.now().strftime('%H:%M:%S')}] Batch completed: {total_time} ms | Online: {online_count}/{len(servers)}")
+                    logger.info(f"[{datetime.now().strftime('%H:%M:%S')}] Batch completed: {total_time} ms | Online: {online_count}/{len(servers)}")
         except asyncio.CancelledError:
             break
         except Exception as e:
-            print(f" Error in polling loop: {e}")
+            logger.error(f" Error in polling loop: {e}")
             
         await asyncio.sleep(3)
 
 async def run_standalone_poller():
     """Entrypoint for running the poller standalone in CLI"""
-    print(" Starting standalone CS2 poller...")
+    logger.info(" Starting standalone CS2 poller...")
     await init_db()
     await init_redis()
     try:
         await start_polling_loop()
     except (KeyboardInterrupt, asyncio.CancelledError):
-        print("\n Poller stopped.")
+        logger.info("\n Poller stopped.")
     finally:
         await close_redis()
         await close_db()
