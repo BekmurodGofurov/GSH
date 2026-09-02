@@ -35,6 +35,7 @@ if not DB_URL:
     raise ValueError("DB_URL environment variable is not set. Please provide it in the .env file.")
 
 import secrets
+import time
 from fastapi import Request, Response
 
 ADMIN_API_KEY = os.getenv("ADMIN_API_KEY", "")
@@ -42,15 +43,22 @@ ADMIN_USERNAME = os.getenv("ADMIN_USERNAME", "")
 ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "")
 
 api_key_header = APIKeyHeader(name="X-API-Key", auto_error=False)
-active_sessions = set()
+active_sessions = {}
 
 async def verify_api_key(request: Request, api_key: str = Security(api_key_header)):
+    now = time.time()
+    expired = [k for k, v in active_sessions.items() if now > v]
+    for k in expired:
+        del active_sessions[k]
+        
     if ADMIN_API_KEY and api_key:
         if secrets.compare_digest(api_key, ADMIN_API_KEY):
             return api_key
             
     session_token = request.cookies.get("admin_session")
     if session_token and session_token in active_sessions:
+        # Refresh session TTL on use
+        active_sessions[session_token] = now + 86400
         return session_token
         
     raise HTTPException(status_code=403, detail="Unauthorized")
@@ -127,8 +135,8 @@ async def admin_login(creds: LoginRequest, response: Response):
         
     if secrets.compare_digest(creds.username, ADMIN_USERNAME) and secrets.compare_digest(creds.password, ADMIN_PASSWORD):
         session_token = secrets.token_urlsafe(32)
-        active_sessions.add(session_token)
-        response.set_cookie(key="admin_session", value=session_token, httponly=True, samesite="lax")
+        active_sessions[session_token] = time.time() + 86400
+        response.set_cookie(key="admin_session", value=session_token, httponly=True, samesite="lax", secure=True, max_age=86400)
         return {"status": "success"}
     raise HTTPException(status_code=401, detail="Invalid credentials")
 
@@ -140,13 +148,13 @@ async def admin_me(api_key: str = Depends(verify_api_key)):
 async def admin_logout(request: Request, response: Response):
     session_token = request.cookies.get("admin_session")
     if session_token in active_sessions:
-        active_sessions.remove(session_token)
+        del active_sessions[session_token]
     response.delete_cookie("admin_session")
     return {"status": "success"}
 
 @app.post("/api/v1/servers", status_code=201)
 async def add_monitored_server(data: ServerCreate, api_key: str = Depends(verify_api_key)):
-    """Add or update a monitored CS2 server (requires admin API key)."""
+    """Add or update a monitored CS2 server (requires admin authentication)."""
     async with get_db_pool().acquire() as conn:
         await conn.execute("""
             INSERT INTO monitored_servers (server_id, server_name, region, status)
