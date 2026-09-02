@@ -49,20 +49,23 @@ async def poll_single_server(server_row, timeout: float = 1.5):
         return {"server_id": server_id, "status": "OFFLINE", "ping": 0.0, "players": 0}
 
     now = datetime.now(timezone.utc)
-    start_time = time.perf_counter()
     info = None
-    
-    # Try query with 1 quick retry to absorb UDP network jitter
+    latency_ms = 0.0
+
+    # Try query with 1 quick retry to absorb UDP network jitter.
+    # Timer is started inside the try block so that retry delays and
+    # asyncio.sleep() are NOT included in the measured latency.
     for attempt in range(2):
         try:
+            _t0 = time.perf_counter()
             info = await a2s.ainfo((ip, port), timeout=timeout)
+            latency_ms = round((time.perf_counter() - _t0) * 1000, 2)
             break
         except Exception:
             if attempt == 0:
                 await asyncio.sleep(0.08)
 
     if info is not None:
-        latency_ms = round((time.perf_counter() - start_time) * 1000, 2)
         server_name = info.server_name or fallback_name
         player_count = info.player_count
         max_players = info.max_players
