@@ -16,8 +16,6 @@ from scipy.sparse import hstack
 ROOT_DIR = Path(__file__).resolve().parent
 MODELS_DIR = ROOT_DIR / "models"
 DB_URL = os.getenv("DB_URL")
-if not DB_URL:
-    raise ValueError("DB_URL environment variable is not set. Please provide it in the .env file.")
 
 NUMERIC_FEATURES = [
     "player_count", "max_players", "ping_ms", "anomaly_score",
@@ -95,6 +93,8 @@ def generate_synthetic_bootstrap_data(n_samples: int = 300) -> pd.DataFrame:
 
 
 async def load_training_data() -> pd.DataFrame:
+    if not DB_URL:
+        raise ValueError("DB_URL environment variable is not set. Please provide it in the .env file.")
     try:
         conn = await asyncpg.connect(DB_URL)
         rows = await conn.fetch("""
