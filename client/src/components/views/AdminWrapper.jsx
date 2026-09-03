@@ -1,21 +1,27 @@
 import React, { useState, useEffect } from 'react';
+import { Loader2 } from 'lucide-react';
 import { AdminLoginView } from './AdminLoginView';
 import { AdminDashboardView } from './AdminDashboardView';
 import { api } from '../../services/api';
 
-export function AdminWrapper() {
+export function AdminWrapper({ onExitAdmin }) {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
     const checkAuth = async () => {
-      const res = await api.verifyAdmin();
-      if (res.data?.status === 'authenticated') {
-        setIsAuthenticated(true);
-      } else {
+      try {
+        const res = await api.verifyAdmin();
+        if (res.data?.status === 'authenticated') {
+          setIsAuthenticated(true);
+        } else {
+          setIsAuthenticated(false);
+        }
+      } catch (e) {
         setIsAuthenticated(false);
+      } finally {
+        setIsLoading(false);
       }
-      setIsLoading(false);
     };
     checkAuth();
   }, []);
@@ -26,21 +32,28 @@ export function AdminWrapper() {
   };
 
   if (isLoading) {
-    return <div className="p-8 text-center">Checking authentication...</div>;
-  }
-
-  if (isAuthenticated) {
     return (
-      <div>
-        <div className="flex justify-end mb-4">
-          <button onClick={handleLogout} className="bg-slate-700 hover:bg-slate-600 px-4 py-2 rounded text-white text-sm">
-            Logout
-          </button>
-        </div>
-        <AdminDashboardView />
+      <div className="flex flex-col items-center justify-center min-h-[60vh] gap-3 text-slate-400 font-mono text-sm">
+        <Loader2 className="w-8 h-8 animate-spin text-cyan-500" />
+        <span>Verifying administrative session...</span>
       </div>
     );
   }
 
-  return <AdminLoginView onLoginSuccess={() => setIsAuthenticated(true)} />;
+  if (isAuthenticated) {
+    return (
+      <AdminDashboardView
+        onLogout={handleLogout}
+        onExitAdmin={onExitAdmin}
+      />
+    );
+  }
+
+  return (
+    <AdminLoginView
+      onLoginSuccess={() => setIsAuthenticated(true)}
+      onExitAdmin={onExitAdmin}
+    />
+  );
 }
+

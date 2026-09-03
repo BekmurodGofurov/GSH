@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useServerData } from './hooks/useServerData';
 import { useTheme } from './hooks/useTheme';
 import { Layout } from './components/layout/Layout';
@@ -11,10 +11,49 @@ import { ServerDetailModal } from './components/dashboard/ServerDetailModal';
 import { NotificationsDrawer } from './components/common/NotificationsDrawer';
 import { AdminWrapper } from './components/views/AdminWrapper';
 
+const rawAdminPath = import.meta.env.VITE_ADMIN_PATH || '/secret-admin';
+const ADMIN_PATH = rawAdminPath.startsWith('/') ? rawAdminPath : `/${rawAdminPath}`;
+
+function checkIsAdminUrl() {
+  if (typeof window === 'undefined') return false;
+  const path = window.location.pathname.replace(/\/+$/, '') || '/';
+  const target = ADMIN_PATH.replace(/\/+$/, '');
+  const hash = (window.location.hash || '').replace(/^#\/?/, '/');
+  return path === target || hash === target;
+}
+
 export function App() {
-  const [currentView, setCurrentView] = useState('overview');
+  const [currentView, setCurrentView] = useState(() => (checkIsAdminUrl() ? 'admin' : 'overview'));
   const [inspectServer, setInspectServer] = useState(null);
   const { theme, toggleTheme } = useTheme();
+
+  useEffect(() => {
+    const handleUrlChange = () => {
+      if (checkIsAdminUrl()) {
+        setCurrentView('admin');
+      } else if (currentView === 'admin') {
+        setCurrentView('overview');
+      }
+    };
+    window.addEventListener('popstate', handleUrlChange);
+    window.addEventListener('hashchange', handleUrlChange);
+    return () => {
+      window.removeEventListener('popstate', handleUrlChange);
+      window.removeEventListener('hashchange', handleUrlChange);
+    };
+  }, [currentView]);
+
+  const handleViewChange = (view) => {
+    if (view !== 'admin' && checkIsAdminUrl()) {
+      window.history.pushState(null, '', '/');
+    }
+    setCurrentView(view);
+  };
+
+  const handleExitAdmin = () => {
+    window.history.pushState(null, '', '/');
+    setCurrentView('overview');
+  };
 
   const {
     servers,
@@ -70,7 +109,7 @@ export function App() {
   return (
     <Layout
       currentView={currentView}
-      onViewChange={setCurrentView}
+      onViewChange={handleViewChange}
       wsStatus={wsStatus}
       retryCountdown={retryCountdown}
       isOffline={isOffline}
@@ -162,7 +201,7 @@ export function App() {
       )}
 
       {currentView === 'admin' && (
-        <AdminWrapper />
+        <AdminWrapper onExitAdmin={handleExitAdmin} />
       )}
 
     {/* Inspect Server Detail Modal */}
