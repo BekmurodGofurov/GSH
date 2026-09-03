@@ -90,9 +90,14 @@ app = FastAPI(
     lifespan=lifespan
 )
 
+FRONTEND_URLS = os.environ.get("FRONTEND_URL")
+if not FRONTEND_URLS:
+    raise ValueError("FRONTEND_URL environment variable is not set. Please provide it in the .env file.")
+origins = [url.strip().rstrip("/") for url in FRONTEND_URLS.split(",")]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origin_regex=r"^http://(localhost|127\.0\.0\.1|192\.168\.\d+\.\d+)(:\d+)?$",
+    allow_origins=origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
