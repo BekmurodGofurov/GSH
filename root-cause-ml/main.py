@@ -9,9 +9,10 @@ Endpoints:
 CLI Usage:
   python main.py train [--generate-dataset]
   python main.py predict --players 0 --ping 5 --score 0.95 --region Warsaw
-  python main.py serve --port 8003
+  python main.py serve --port <PORT>
 """
 
+import os
 import argparse
 import asyncio
 from datetime import datetime, timezone
@@ -160,7 +161,7 @@ def main():
     # SERVE
     serve_p = subparsers.add_parser("serve", help="Run FastAPI microservice")
     serve_p.add_argument("--host", default="0.0.0.0", help="Bind host")
-    serve_p.add_argument("--port", type=int, default=8003, help="Bind port")
+    serve_p.add_argument("--port", type=int, default=None, help="Bind port")
 
     args = parser.parse_args()
 
@@ -191,8 +192,11 @@ def main():
             print("❌ Model artifact not found. Please train first with `python main.py train`.")
 
     elif args.command == "serve":
+        port = args.port or os.getenv("PORT") or os.getenv("ROOT_CAUSE_ML_CONTAINER_PORT") or os.getenv("ROOT_CAUSE_ML_PORT")
+        if not port:
+            raise ValueError("Port is not set. Provide --port argument or set PORT / ROOT_CAUSE_ML_PORT in .env")
         import uvicorn
-        uvicorn.run("main:app", host=args.host, port=args.port, reload=True)
+        uvicorn.run("main:app", host=args.host, port=int(port))
 
     else:
         parser.print_help()

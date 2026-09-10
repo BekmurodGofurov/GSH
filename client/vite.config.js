@@ -12,6 +12,11 @@ export default defineConfig(({ mode }) => {
     throw new Error("VITE_API_URL environment variable is not set in client/.env");
   }
 
+  const clientPort = env.CLIENT_PORT || env.CLIENT_CONTAINER_PORT || env.PORT;
+  if (!clientPort) {
+    throw new Error("CLIENT_PORT (or CLIENT_CONTAINER_PORT / PORT) environment variable is not set in client/.env");
+  }
+
   return {
     plugins: [react()],
     resolve: {
@@ -20,7 +25,7 @@ export default defineConfig(({ mode }) => {
       },
     },
     server: {
-      port: 3000,
+      port: parseInt(clientPort, 10),
       host: true,
       proxy: {
         '/api': {
@@ -32,6 +37,10 @@ export default defineConfig(({ mode }) => {
           ws: true,
         },
       },
+    },
+    preview: {
+      port: parseInt(clientPort, 10),
+      host: true,
     },
     build: {
       chunkSizeWarningLimit: 800,

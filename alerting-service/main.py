@@ -1,8 +1,8 @@
 """
-main.py — Alerting Service kirish nuqtasi.
+main.py — Alerting Service entry point.
 
-Barcha sozlamalar config.py → settings orqali olinadi.
-os.getenv() bu faylda ISHLATILMAYDI.
+All settings are retrieved via config.py → settings.
+os.getenv() is NOT used in this file.
 """
 
 from __future__ import annotations
@@ -23,9 +23,9 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Telegram ga ulanishda qayta urinish sozlamalari
+# Telegram connection retry settings
 BOT_CONNECT_MAX_RETRIES = 10
-BOT_CONNECT_RETRY_DELAY = 5   # soniya
+BOT_CONNECT_RETRY_DELAY = 5   # seconds
 
 
 async def main() -> None:

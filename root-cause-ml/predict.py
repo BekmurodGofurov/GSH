@@ -144,7 +144,7 @@ def predict_root_cause(
 ) -> dict[str, Any]:
     artifact = load_model()
 
-    # 1. Model bo'lmasa yoki scaler bo'lmasa qoidalardan foydalanish
+    # 1. Fallback to rule-based logic if model or scaler is unavailable
     if artifact is None or "scaler" not in artifact:
         results = rule_based_labeler(
             player_count, ping_ms, anomaly_score, ping_delta, player_delta, servers_affected_same_region

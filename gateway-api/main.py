@@ -367,3 +367,11 @@ async def delete_monitored_server(server_id: str, api_key: str = Depends(verify_
         if result == "DELETE 0":
             raise HTTPException(status_code=404, detail="Server not found")
     return {"status": "success", "message": f"Server {server_id} deleted successfully"}
+
+
+if __name__ == "__main__":
+    import uvicorn
+    port_env = os.getenv("PORT") or os.getenv("GATEWAY_CONTAINER_PORT") or os.getenv("GATEWAY_PORT")
+    if not port_env:
+        raise ValueError("PORT (or GATEWAY_PORT / GATEWAY_CONTAINER_PORT) environment variable is not set. Please provide it in the .env file.")
+    uvicorn.run("main:app", host="0.0.0.0", port=int(port_env))

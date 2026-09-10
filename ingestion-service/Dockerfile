@@ -12,4 +12,4 @@ RUN pip install --no-cache-dir --upgrade pip && \
 COPY shared_schemas/ /app/shared_schemas/
 COPY ingestion-service/ /app/
 
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8001"]
+CMD ["python", "main.py"]

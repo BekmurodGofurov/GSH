@@ -33,7 +33,10 @@ app = FastAPI(
     lifespan=lifespan
 )
 
-FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:5173").rstrip("/")
+FRONTEND_URL = os.getenv("FRONTEND_URL")
+if not FRONTEND_URL:
+    raise ValueError("FRONTEND_URL environment variable is not set. Please provide it in the .env file.")
+FRONTEND_URL = FRONTEND_URL.rstrip("/")
 
 app.add_middleware(
     CORSMiddleware,
@@ -67,3 +70,11 @@ async def ingest_event(data: EventPayload):
             VALUES (NOW(), $1, $2, $3, $4);
         """, data.server_id, data.event_type, data.root_cause, data.message)
     return {"status": "event_inserted"}
+
+
+if __name__ == "__main__":
+    import uvicorn
+    port_env = os.getenv("PORT") or os.getenv("INGESTION_CONTAINER_PORT") or os.getenv("INGESTION_PORT")
+    if not port_env:
+        raise ValueError("PORT (or INGESTION_PORT / INGESTION_CONTAINER_PORT) environment variable is not set. Please provide it in the .env file.")
+    uvicorn.run("main:app", host="0.0.0.0", port=int(port_env))
