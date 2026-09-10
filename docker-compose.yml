@@ -65,7 +65,7 @@ services:
       REDIS_URL: "${REDIS_URL:-redis://redis:${REDIS_CONTAINER_PORT:-${REDIS_PORT:?REDIS_PORT is required in .env}}}"
       ADMIN_USERNAME: "${ADMIN_USERNAME:?ADMIN_USERNAME is required in .env}"
       ADMIN_PASSWORD: "${ADMIN_PASSWORD:?ADMIN_PASSWORD is required in .env}"
-      FRONTEND_URL: "${FRONTEND_URL:?FRONTEND_URL is required in .env}"
+      FRONTEND_URL: "${FRONTEND_URL:-http://${HOST:-${DOMAIN:-localhost}}:${CLIENT_HOST_PORT:-${CLIENT_PORT:-3000}}}"
     depends_on:
       timescaledb:
         condition: service_healthy
@@ -84,7 +84,7 @@ services:
       PORT: "${INGESTION_CONTAINER_PORT:-${INGESTION_PORT:?INGESTION_PORT is required in .env}}"
       DB_URL: "${DB_URL:-postgresql://postgres:${POSTGRES_PASSWORD}@timescaledb:${TIMESCALE_CONTAINER_PORT:-${TIMESCALE_PORT:-5432}}/game_monitor}"
       REDIS_URL: "${REDIS_URL:-redis://redis:${REDIS_CONTAINER_PORT:-${REDIS_PORT:?REDIS_PORT is required in .env}}}"
-      FRONTEND_URL: "${FRONTEND_URL:?FRONTEND_URL is required in .env}"
+      FRONTEND_URL: "${FRONTEND_URL:-http://${HOST:-${DOMAIN:-localhost}}:${CLIENT_HOST_PORT:-${CLIENT_PORT:-3000}}}"
     depends_on:
       timescaledb:
         condition: service_healthy
@@ -166,7 +166,9 @@ services:
     environment:
       CLIENT_PORT: "${CLIENT_CONTAINER_PORT:-${CLIENT_PORT:?CLIENT_PORT is required in .env}}"
       PORT: "${CLIENT_CONTAINER_PORT:-${CLIENT_PORT:?CLIENT_PORT is required in .env}}"
-      VITE_API_URL: "${VITE_API_URL:-http://localhost:${GATEWAY_HOST_PORT:-${GATEWAY_PORT:?GATEWAY_PORT is required in .env}}}"
+      VITE_API_URL: "${VITE_API_URL:-http://${HOST:-${DOMAIN:-localhost}}:${GATEWAY_HOST_PORT:-${GATEWAY_PORT:-8000}}}"
+      VITE_WS_URL: "${VITE_WS_URL:-ws://${HOST:-${DOMAIN:-localhost}}:${GATEWAY_HOST_PORT:-${GATEWAY_PORT:-8000}}/ws/live}"
+      VITE_ADMIN_PATH: "${VITE_ADMIN_PATH:-/secret-admin}"
     depends_on:
       gateway-api:
         condition: service_started

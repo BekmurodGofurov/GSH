@@ -103,6 +103,14 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+@app.get("/")
+async def root():
+    return {"status": "ok", "service": "gateway-api", "version": "1.0.0"}
+
+@app.get("/health")
+async def health_check():
+    return {"status": "ok", "service": "gateway-api"}
+
 LATEST_SERVERS_QUERY = """
     SELECT
         ms.server_id,
