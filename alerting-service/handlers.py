@@ -11,7 +11,7 @@ date_pattern = re.compile(r'(\d{4})\.(\d{2})\.(\d{2})')
 
 @router.message()
 async def handle_date_query(message: Message, bot: Bot, pool: asyncpg.Pool):
-    # Faqat guruhdagi mention yoki reply larni tutish (yoki to'g'ridan to'g'ri)
+    # Only handle group mentions or replies (or direct messages)
     me = await bot.get_me()
     bot_mention = f"@{me.username}"
     

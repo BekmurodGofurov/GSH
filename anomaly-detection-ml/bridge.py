@@ -11,8 +11,16 @@ logging.basicConfig(level=logging.INFO, format="%(message)s")
 logger = logging.getLogger(__name__)
 
 DB_URL = os.getenv("DB_URL")
-ANOMALY_API_URL = os.getenv("ANOMALY_API_URL", "http://localhost:8002/predict/anomaly")
-ROOT_CAUSE_API_URL = os.getenv("ROOT_CAUSE_API_URL", "http://localhost:8003/predict/root-cause")
+if not DB_URL:
+    raise ValueError("DB_URL environment variable is not set. Please provide it in the .env file.")
+
+ANOMALY_API_URL = os.getenv("ANOMALY_API_URL")
+if not ANOMALY_API_URL:
+    raise ValueError("ANOMALY_API_URL environment variable is not set. Please provide it in the .env file.")
+
+ROOT_CAUSE_API_URL = os.getenv("ROOT_CAUSE_API_URL")
+if not ROOT_CAUSE_API_URL:
+    raise ValueError("ROOT_CAUSE_API_URL environment variable is not set. Please provide it in the .env file.")
 POLL_INTERVAL_SECONDS = float(os.getenv("BRIDGE_POLL_INTERVAL", "5"))
 REGIONAL_INCIDENT_WINDOW = timedelta(minutes=1)
 

@@ -12,7 +12,7 @@ def _ping_emoji(ping_ms: float) -> str:
 
 
 def _short_name(server_name: str, max_len: int = 38) -> str:
-    """Server nomini qisqartiradi."""
+    """Truncates server name if it exceeds max_len."""
     return server_name if len(server_name) <= max_len else server_name[:max_len - 1] + "…"
 
 
@@ -24,7 +24,7 @@ def format_report(report: DailyReport) -> str:
     lines.append(f"🕐 <b>{report['report_date']}</b>")
     lines.append(f"🔍 Analysis Window: <i>{report['window_label']}</i>\n")
 
-    # --- Highest Ping (1 ta — peak) ---
+    # --- Highest Ping (1 server — peak) ---
     hp = report["highest_ping"]
     if hp:
         ping_emoji = _ping_emoji(hp["max_ping_ms"])

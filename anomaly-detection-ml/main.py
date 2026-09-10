@@ -133,3 +133,13 @@ def predict_anomaly(request: AnomalyRequest) -> AnomalyResponse:
 def clear_baseline(game: str, server_id: str) -> dict[str, str]:
     histories.pop(f"{game}:{server_id}", None)
     return {"status": "baseline_cleared", "server_id": server_id}
+
+
+if __name__ == "__main__":
+    import os
+    import uvicorn
+    port_env = os.getenv("PORT") or os.getenv("ANOMALY_ML_CONTAINER_PORT") or os.getenv("ANOMALY_ML_PORT")
+    if not port_env:
+        raise ValueError("PORT (or ANOMALY_ML_PORT / ANOMALY_ML_CONTAINER_PORT) environment variable is not set. Please provide it in the .env file.")
+    uvicorn.run("main:app", host="0.0.0.0", port=int(port_env))
+

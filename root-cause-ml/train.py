@@ -16,6 +16,8 @@ from scipy.sparse import hstack
 ROOT_DIR = Path(__file__).resolve().parent
 MODELS_DIR = ROOT_DIR / "models"
 DB_URL = os.getenv("DB_URL")
+if not DB_URL:
+    raise ValueError("DB_URL environment variable is not set. Please provide it in the .env file.")
 
 NUMERIC_FEATURES = [
     "player_count", "max_players", "ping_ms", "anomaly_score",
@@ -144,7 +146,7 @@ async def train() -> dict:
     X_df = df.drop(columns=["root_cause"])
     y = df["root_cause"]
 
-    # Faqat har bir toifada kamida 2 ta namuna bo'lsa stratify qilinsin
+    # Stratify only if each class has at least 2 samples
     stratify_target = y if y.value_counts().min() >= 2 else None
 
     X_train_df, X_test_df, y_train, y_test = train_test_split(

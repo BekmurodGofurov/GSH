@@ -16,7 +16,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from db import init_db, close_db, get_db_pool
 
-REDIS_URL = os.getenv("REDIS_URL") or "redis://localhost:6379"
+REDIS_URL = os.getenv("REDIS_URL")
+if not REDIS_URL:
+    raise ValueError("REDIS_URL environment variable is not set. Please provide it in the .env file.")
 redis_client: Redis | None = None
 
 async def init_redis():
