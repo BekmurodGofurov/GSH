@@ -16,6 +16,12 @@ node_modules/
 dist/
 .dist/
 
+# Test artifacts
+.pytest_cache/
+.coverage
+htmlcov/
+coverage/
+
 # OS / IDE
 .DS_Store
 .vscode/

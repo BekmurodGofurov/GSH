@@ -63,6 +63,21 @@ Agent may NOT modify:
 - database schema
 - secrets
 
+## Branches
+
+```
+feature/* ──PR──► developer ──PR──► main
+              (CI must pass)   (CI must pass)
+```
+
+- `main` — production; only merges from `developer`.
+- `developer` — integration branch; merge only when CI is green.
+- `feature/*` — working branches; open the PR against `developer`.
+
+Branch protection is configured in GitHub's settings, not in the repo:
+require a PR and a passing `CI passed` check on both `main` and
+`developer`, and disallow direct pushes.
+
 ## Testing
 
 Every new agent tool must have:
@@ -70,6 +85,19 @@ Every new agent tool must have:
 - success test
 - invalid input test
 - database/service failure handling
+
+Running the suites:
+
+```bash
+pip install -r <service>/requirements.txt -r requirements-dev.txt
+cd <service> && pytest -v      # any Python service
+cd client && npm ci && npm test
+```
+
+`.github/workflows/ci.yml` runs every service's suite plus the client
+build on each PR to `developer` and `main`. See `skills/testing/SKILL.md`
+before writing tests — services raise at import time on missing env
+vars, and the FastAPI lifespans open real database connections.
 
 ## Secrets
 
