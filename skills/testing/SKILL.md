@@ -1,6 +1,6 @@
 ---
 name: gsh-testing
-description: Use whenever adding a new LLM agent tool or a new backend endpoint in the GSH repo. AGENTS.md requires every new agent tool to ship with a success test, an invalid-input test, and a database/service-failure test — this skill covers what those three tests need to check and, since no test framework is wired up in any GSH service yet, how to handle that gap instead of silently skipping tests or guessing at a framework.
+description: Use whenever adding a new LLM agent tool or a new backend endpoint in the GSH repo. AGENTS.md requires every new agent tool to ship with a success test, an invalid-input test, and a database/service-failure test — this skill covers what those three tests need to check, and the repo-specific traps in writing them: every service raises at import time on missing env vars, and every FastAPI lifespan opens real Postgres/Redis connections.
 ---
 
 # GSH Testing Rules
@@ -29,24 +29,51 @@ The same three categories are worth applying to new backend endpoints
 too — the reasoning is the same, just with an HTTP caller instead of an
 LLM caller.
 
-## Before writing a single test: check what already exists
+## The setup that already exists
 
-No test framework is set up anywhere in this repo yet — there's no root
-`pytest.ini`/`pyproject.toml` test config and no `tests/` directory in
-any service as of now. So don't assume pytest, don't assume a fixture
-pattern, and don't silently skip testing either. Instead:
+Every Python service has `pytest.ini` + `tests/` at its own root, and
+the client uses Vitest. Follow the existing convention rather than
+introducing a second one:
 
-1. Look inside the specific service you're changing (e.g.
-   `gateway-api/requirements.txt`, or a `tests/`/`conftest.py` folder)
-   for an existing test setup.
-2. **If you find one**, follow its existing convention — same runner,
-   same fixture/mocking style, same file layout.
-3. **If you don't find one**, don't invent a test framework choice
-   unilaterally and don't quietly skip the tests either. Tell the user
-   directly: "this service has no test infrastructure yet — do you
-   want me to set up pytest (with `pytest-asyncio` + `httpx.AsyncClient`
-   for the FastAPI services) before writing these tests, or handle it
-   differently?" Let them decide before you add new dependencies.
+```bash
+cd <service> && pytest -v      # any Python service
+cd client && npm test          # Vitest
+```
+
+- Test tooling lives in the **root `requirements-dev.txt`**, not in the
+  services' `requirements.txt` — those are what the Dockerfiles install,
+  and production images should not ship a test runner. Install both:
+  `pip install -r <service>/requirements.txt -r requirements-dev.txt`.
+- Each service's `pytest.ini` sets `pythonpath = .` so tests import the
+  service modules directly (`from main import ...`). `shared_schemas`
+  is the exception: it sets `pythonpath = ..` because it is imported as
+  a package.
+- `.github/workflows/ci.yml` runs all of this per service on every PR to
+  `developer` and `main`, on the same Python version as that service's
+  Dockerfile.
+
+## Two traps specific to this repo
+
+**1. Services raise at import time on missing env vars.** `gateway-api`
+needs `DB_URL`, `ADMIN_USERNAME`, `ADMIN_PASSWORD`, `FRONTEND_URL`;
+`ingestion-service` needs `DB_URL`, `REDIS_URL`, `FRONTEND_URL`;
+`root-cause-ml` imports `train.py`, which needs `DB_URL`. Worse,
+`alerting-service/config.py` calls `sys.exit(1)` — that kills the whole
+pytest run, not just one test. So seed the env with dummies at the **top
+of `tests/conftest.py`**, before any import of the service module. A
+fixture is too late; conftest is imported before the test modules, but
+module-level imports inside conftest still run in file order.
+
+**2. `TestClient` runs the app's lifespan**, which opens real Postgres
+and Redis connections and (in `ingestion-service`) starts the polling
+loop. For `gateway-api` and `ingestion-service`, drive the app through
+`httpx.ASGITransport` instead — it skips lifespan — and install a fake
+pool over the module global. `anomaly-detection-ml` and `root-cause-ml`
+define no lifespan, so plain `TestClient` is fine there.
+
+One more: `gateway-api` sets its admin session cookie with
+`secure=True`, so an `AsyncClient` on an `http://` base URL will
+silently never send it back. Use `base_url="https://test"`.
 
 ## Shape of the three tests, once infra exists
 
