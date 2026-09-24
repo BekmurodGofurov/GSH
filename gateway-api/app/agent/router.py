@@ -1,7 +1,11 @@
+import asyncio
+import json
 import os
 from fastapi import APIRouter, HTTPException, Depends
+from fastapi.encoders import jsonable_encoder
 from google import genai
 from google.genai import types as genai_types
+from google.genai import errors as genai_errors
 
 from app.agent import schemas, tools
 
@@ -17,7 +21,11 @@ if not _LLM_API_KEY:
     )
 
 _client = genai.Client(api_key=_LLM_API_KEY)
-_MODEL = "gemini-2.0-flash"
+
+# Model id, overridable from .env. Google retires model ids on its own
+# schedule -- when that happens the API answers 404 and names the
+# replacement, which should be a one-line .env change, not a redeploy.
+_MODEL = os.environ.get("AGENT_LLM_MODEL") or "gemini-3.6-flash"
 
 # Tool whitelist
 # The LLM only knows about tools in this list.
@@ -135,6 +143,47 @@ _TOOL_BY_NAME = {t["name"]: t for t in _TOOL_REGISTRY}
 router = APIRouter()
 
 
+# 503 means the shared model is momentarily overloaded -- it clears on its
+# own, so it is worth retrying before bothering the user with an error.
+#
+# 429 is deliberately NOT retried: on this API it usually means the quota
+# for the period is spent, and every retry burns more of what is left
+# without any chance of succeeding. It surfaces straight away instead, so
+# the message names the real problem.
+_RETRYABLE_STATUS = (503,)
+_MAX_ATTEMPTS = 3
+_RETRY_BACKOFF_SECONDS = 1.0
+
+
+async def _generate(**kwargs):
+    """Call the LLM: retry transient failures, surface the rest as 502.
+
+    The SDK call is synchronous, so it runs in a worker thread -- calling
+    it inline would block the event loop for the whole round trip and
+    stall every other request, the dashboard's WebSocket included.
+
+    Letting google.genai raise through the handler would produce a bare
+    500 that Starlette renders outside the CORS middleware, so the browser
+    reports a misleading "No Access-Control-Allow-Origin" error and the
+    real cause (retired model id, bad key, quota) never reaches the
+    dashboard.
+    """
+    for attempt in range(_MAX_ATTEMPTS):
+        try:
+            return await asyncio.to_thread(
+                _client.models.generate_content, model=_MODEL, **kwargs
+            )
+        except genai_errors.APIError as e:
+            is_last = attempt == _MAX_ATTEMPTS - 1
+            if getattr(e, "code", None) not in _RETRYABLE_STATUS or is_last:
+                raise HTTPException(
+                    status_code=502,
+                    detail=f"LLM provider error for model '{_MODEL}': {e}",
+                )
+            # Exponential backoff: 1s, then 2s.
+            await asyncio.sleep(_RETRY_BACKOFF_SECONDS * (2 ** attempt))
+
+
 def _get_db_pool():
     """Import the live db_pool from main at request time (not at module load time)."""
     import main as gw
@@ -165,8 +214,7 @@ async def agent_ask(body: schemas.AskRequest):
     )
 
     # Turn 1: Send question to Gemini with tool list
-    response = _client.models.generate_content(
-        model=_MODEL,
+    response = await _generate(
         contents=body.question,
         config=genai_types.GenerateContentConfig(
             system_instruction=system_instruction,
@@ -225,35 +273,36 @@ async def agent_ask(body: schemas.AskRequest):
 
         tool_used = tool_name
 
-        # Turn 2: Send tool result back to Gemini for final answer
-        # We build a full conversation history:
-        # [user question] → [model's tool request] → [tool result] → [model's final answer]
-        final_response = _client.models.generate_content(
-            model=_MODEL,
+        # Turn 2: Ask for a grounded answer with the tool output inlined as
+        # text. Replaying the function_call/function_response pair instead
+        # would be the textbook round trip, but Gemini now rejects a
+        # functionCall part echoed back without the thought_signature it was
+        # issued with -- and that signature is not available on the parsed
+        # response. Plain text keeps this working across model revisions.
+        #
+        # No tools are offered on this turn: the data is already in hand and
+        # a second tool request would just be discarded.
+        tool_payload = json.dumps(jsonable_encoder(tool_result), ensure_ascii=False)
+        final_response = await _generate(
             contents=[
                 genai_types.Content(
                     role="user",
-                    parts=[genai_types.Part(text=body.question)],
-                ),
-                genai_types.Content(
-                    role="model",
-                    parts=[genai_types.Part(function_call=function_call)],
-                ),
-                genai_types.Content(
-                    role="tool",
                     parts=[
                         genai_types.Part(
-                            function_response=genai_types.FunctionResponse(
-                                name=tool_name,
-                                response={"result": tool_result},
+                            text=(
+                                f"{body.question}\n\n"
+                                f"Data returned by the `{tool_name}` tool "
+                                f"(JSON):\n{tool_payload}"
                             )
                         )
                     ],
                 ),
             ],
             config=genai_types.GenerateContentConfig(
-                system_instruction=system_instruction,
-                tools=_GEMINI_TOOLS,
+                system_instruction=(
+                    system_instruction
+                    + " Answer using only the tool data provided in the message."
+                ),
                 temperature=0.1,
             ),
         )

@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { X, Bot, Send, Loader2, Wrench, AlertTriangle } from 'lucide-react';
 import { api } from '../../services/api';
 
-export function AskPanel({ isOpen, onClose }) {
+export function AskPanel({ isOpen, onOpen, onClose }) {
   const [question, setQuestion] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [response, setResponse] = useState(null);   // { answer, tool_used }
@@ -52,6 +52,20 @@ export function AskPanel({ isOpen, onClose }) {
 
   return (
     <>
+      {/* Floating trigger, bottom-right. On mobile it sits above the bottom
+          nav bar in Layout so it never covers those buttons. */}
+      <button
+        type="button"
+        onClick={onOpen}
+        title="Ask the Agent"
+        aria-label="Ask the Agent"
+        className={`fixed right-5 bottom-20 md:bottom-6 z-40 flex items-center justify-center w-14 h-14 rounded-full bg-cyan-600 hover:bg-cyan-700 text-white shadow-lg shadow-cyan-900/30 ring-1 ring-cyan-400/40 transition-all duration-200 ${
+          isOpen ? 'opacity-0 pointer-events-none scale-90' : 'opacity-100 scale-100'
+        }`}
+      >
+        <Bot className="w-6 h-6" />
+      </button>
+
       {/* Dark backdrop — clicking it closes the panel */}
       {isOpen && (
         <div
@@ -62,7 +76,7 @@ export function AskPanel({ isOpen, onClose }) {
 
       {/* The panel itself */}
       <div
-        className={`fixed inset-y-0 right-0 z-50 w-full sm:w-[420px] bg-white dark:bg-slate-950 border-l border-slate-200 dark:border-slate-800 shadow-2xl transform transition-transform duration-300 ease-in-out flex flex-col ${
+        className={`fixed inset-y-0 right-0 z-50 w-full sm:w-[560px] lg:w-[680px] xl:w-[760px] bg-white dark:bg-slate-950 border-l border-slate-200 dark:border-slate-800 shadow-2xl transform transition-transform duration-300 ease-in-out flex flex-col ${
           isOpen ? 'translate-x-0' : 'translate-x-full'
         }`}
       >
@@ -148,7 +162,7 @@ export function AskPanel({ isOpen, onClose }) {
 
               {/* The answer text */}
               <div className="p-4 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm">
-                <p className="text-sm text-slate-800 dark:text-slate-200 leading-relaxed whitespace-pre-wrap">
+                <p className="text-[15px] text-slate-800 dark:text-slate-200 leading-7 whitespace-pre-wrap">
                   {response.answer}
                 </p>
               </div>
@@ -176,7 +190,7 @@ export function AskPanel({ isOpen, onClose }) {
               onChange={(e) => setQuestion(e.target.value)}
               onKeyDown={handleKeyDown}
               placeholder="Ask about server health, latency, events…"
-              rows={3}
+              rows={4}
               disabled={isLoading}
               className="w-full resize-none rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-slate-100 text-sm px-3 py-2.5 placeholder:text-slate-400 dark:placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-cyan-500/50 focus:border-cyan-400 dark:focus:border-cyan-600 disabled:opacity-50 transition-colors"
             />

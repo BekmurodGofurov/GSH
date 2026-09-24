@@ -17,6 +17,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from shared_schemas.models import ServerMetric
 
+# SQL constants shared with the agent tools (see queries.py for why they
+# live outside this module).
+from queries import LATEST_SERVERS_QUERY
+
 # Schema for registering a new server
 from pydantic import BaseModel, Field
 
@@ -116,29 +120,6 @@ async def root():
 @app.get("/health")
 async def health_check():
     return {"status": "ok", "service": "gateway-api"}
-
-LATEST_SERVERS_QUERY = """
-    SELECT
-        ms.server_id,
-        ms.server_name,
-        ms.region,
-        ms.status,
-        ms.last_online_at,
-        ms.last_offline_at,
-        lm.player_count,
-        lm.max_players,
-        lm.ping_ms::double precision AS ping_ms,
-        lm.time AS last_metric_at
-    FROM monitored_servers ms
-    LEFT JOIN LATERAL (
-        SELECT time, player_count, max_players, ping_ms
-        FROM server_metrics
-        WHERE server_id = ms.server_id
-        ORDER BY time DESC
-        LIMIT 1
-    ) lm ON TRUE
-    ORDER BY ms.server_name;
-"""
 
 # --- SERVER MANAGEMENT (ADMIN / CLIENT) ---
 

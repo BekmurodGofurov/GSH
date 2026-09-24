@@ -128,7 +128,6 @@ export function App() {
       theme={theme}
       toggleTheme={toggleTheme}
       onOpenNotifications={() => setIsNotificationsOpen(true)}
-      onOpenAsk={() => setIsAskOpen(true)}
       unreadCount={notifications.length}
     >
       {/* Dynamic View rendering */}
@@ -228,6 +227,7 @@ export function App() {
       
       <AskPanel
         isOpen={isAskOpen}
+        onOpen={() => setIsAskOpen(true)}
         onClose={() => setIsAskOpen(false)}
       />
       

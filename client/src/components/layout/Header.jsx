@@ -7,7 +7,6 @@ import {
   Sun,
   Moon,
   Bell,
-  Bot,
 } from 'lucide-react';
 import { Badge } from '../common/Badge';
 import { Button } from '../common/Button';
@@ -27,7 +26,6 @@ export function Header({
   toggleTheme,
   onOpenNotifications,
   unreadCount,
-  onOpenAsk,
 }) {
   const isWsConnected = wsStatus === 'connected';
 
@@ -130,17 +128,6 @@ export function Header({
             <strong className="text-emerald-600 dark:text-emerald-400">{kpis.onlineServers}</strong>/{kpis.totalServers} Nodes
           </span>
         </div>
-
-        {/* Ask the Agent */}
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={onOpenAsk}
-          title="Ask the Agent"
-          className="text-slate-600 dark:text-slate-400 hover:text-cyan-600 dark:hover:text-cyan-400"
-        >
-          <Bot className="w-4 h-4" />
-        </Button>
 
         {/* Notifications Toggle */}
         <Button

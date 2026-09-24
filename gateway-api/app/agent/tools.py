@@ -3,16 +3,20 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
 from fastapi import HTTPException
-import main as gw # reuse the SQL constants already defined there
+
+# Import the SQL constants from queries.py, never from main: main imports
+# this package at load time, so importing it back would close a cycle that
+# crashes the service under `python main.py`.
+from queries import LATEST_SERVERS_QUERY
 
 # READ tools
 
 async def get_server_summary(db_pool) -> list[dict]:
     """Return current status of every monitored server with latest metric."""
-    # Reuses the LATEST_SERVERS_QUERY constant from main.py.
-    # That query joins monitored_servers with the most recent server_metrics row.
+    # LATEST_SERVERS_QUERY joins monitored_servers with the most recent
+    # server_metrics row -- the same query the REST endpoint serves.
     async with db_pool.acquire() as conn:
-        rows = await conn.fetch(gw.LATEST_SERVERS_QUERY)
+        rows = await conn.fetch(LATEST_SERVERS_QUERY)
     return [dict(r) for r in rows]
 
 async def get_recent_events(db_pool, limit: int = 10) -> list[dict]:
