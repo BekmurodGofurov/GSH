@@ -191,6 +191,20 @@ async def test_relabel_event_not_found():
     assert exc_info.value.status_code == 404
 
 
+def test_relabel_request_accepts_a_numeric_event_id():
+    """
+    The model sends event_id as a number, so the schema has to take one.
+
+    The three rejection tests below kept passing while event_id was typed
+    str: an int input failed the type check before their own condition was
+    ever reached, so they went green against a schema no real request
+    could satisfy. This pins down the accepting case.
+    """
+    assert schemas.RelabelRequest(event_id=5, root_cause="HIGH_LATENCY").event_id == 5
+    # A model that sends the id as a string still works -- Pydantic coerces.
+    assert schemas.RelabelRequest(event_id="7", root_cause="MAINTENANCE").event_id == 7
+
+
 def test_relabel_event_invalid_root_cause():
     """Rejects a root_cause string that isn't in the allowed Literal list."""
     with pytest.raises(ValidationError):
@@ -282,3 +296,94 @@ async def test_ask_endpoint_db_not_ready(monkeypatch, client):
     monkeypatch.setattr(gw, "db_pool", None)
     response = await client.post("/api/v1/agent/ask", json={"question": "hello"})
     assert response.status_code == 503
+
+@pytest.mark.asyncio
+async def test_ask_endpoint_surfaces_llm_provider_failure(client, db):
+    """
+    A provider-side failure (retired model id, bad key, quota) must come
+    back as a clean 502, not an unhandled exception.
+
+    An unhandled one renders as a bare 500 outside the CORS middleware, so
+    the browser reports it as "No Access-Control-Allow-Origin" and the
+    actual cause never reaches the dashboard.
+    """
+    from google.genai import errors as genai_errors
+
+    provider_error = genai_errors.ClientError(
+        404,
+        {
+            "error": {
+                "code": 404,
+                "message": "This model models/gemini-2.0-flash is no longer available.",
+                "status": "NOT_FOUND",
+            }
+        },
+    )
+
+    with patch("app.agent.router._client") as mock_client:
+        mock_client.models.generate_content.side_effect = provider_error
+
+        response = await client.post(
+            "/api/v1/agent/ask",
+            json={"question": "What servers are online?"},
+        )
+
+    assert response.status_code == 502
+    assert "no longer available" in response.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_ask_endpoint_retries_transient_provider_error(monkeypatch, client, db):
+    """
+    A 503 ("model is experiencing high demand") is transient, so the
+    endpoint retries instead of failing the user's question outright.
+    """
+    from app.agent import router as agent_router
+    from google.genai import errors as genai_errors
+
+    monkeypatch.setattr(agent_router, "_RETRY_BACKOFF_SECONDS", 0)
+
+    overloaded = genai_errors.ClientError(
+        503,
+        {"error": {"code": 503, "message": "high demand", "status": "UNAVAILABLE"}},
+    )
+    answered = MagicMock()
+    answered.candidates = [MagicMock(content=MagicMock(parts=[]))]
+    answered.text = "All 23 servers are online."
+
+    with patch("app.agent.router._client") as mock_client:
+        # Fails once, succeeds on the retry.
+        mock_client.models.generate_content.side_effect = [overloaded, answered]
+
+        response = await client.post(
+            "/api/v1/agent/ask",
+            json={"question": "How many servers are online?"},
+        )
+
+    assert response.status_code == 200
+    assert response.json()["answer"] == "All 23 servers are online."
+    assert mock_client.models.generate_content.call_count == 2
+
+
+@pytest.mark.asyncio
+async def test_ask_endpoint_does_not_retry_quota_errors(client, db):
+    """A 429 is a spent quota, not a blip: retrying it only burns more."""
+    from google.genai import errors as genai_errors
+
+    quota_error = genai_errors.ClientError(
+        429,
+        {"error": {"code": 429, "message": "You exceeded your current quota",
+                   "status": "RESOURCE_EXHAUSTED"}},
+    )
+
+    with patch("app.agent.router._client") as mock_client:
+        mock_client.models.generate_content.side_effect = quota_error
+
+        response = await client.post(
+            "/api/v1/agent/ask",
+            json={"question": "How many servers are online?"},
+        )
+
+    assert response.status_code == 502
+    assert "quota" in response.json()["detail"].lower()
+    assert mock_client.models.generate_content.call_count == 1

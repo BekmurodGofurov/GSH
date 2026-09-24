@@ -44,8 +44,15 @@ jobs:
             # reset --hard instead of pull: the deploy always lands exactly on
             # origin/main, even if something was touched on the box. The
             # untracked .env (secrets, never in git) survives this.
+            #
+            # checkout -B pins the box to a branch named main as well. Without
+            # it the reset would move whatever branch happens to be checked
+            # out (a leftover feature branch, say) onto main's commit, and a
+            # later `git pull` there would try to merge that feature branch
+            # back in.
             git fetch origin main
             git reset --hard origin/main
+            git checkout -B main origin/main
 
             # Docker configuration
             # Brings up timescaledb, redis, the Python services and the

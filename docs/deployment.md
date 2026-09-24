@@ -213,6 +213,8 @@ into the CORS `allow_origins` list and raises at import if it is unset.
 | Site loads but every request fails with a CORS or mixed-content error | `FRONTEND_URL` in the root `.env`, or the `VITE_*` URLs in `client/.env`, don't match the public origin. |
 | Dashboard renders but never updates | `/ws/live` isn't proxied with the upgrade headers, or `gateway-api` is down — `docker compose logs -f gateway-api`. |
 | Frontend looks stale after a green deploy | the copy landed but the browser cached `index.html`; hard-reload. The hashed assets under `dist/assets/` are new on every build. |
+| The agent answers "LLM provider error ... 429 RESOURCE_EXHAUSTED" | the Gemini free tier allows 20 requests per day **per model**, and one question costs two of them (tool selection, then the grounded answer). Switch `AGENT_LLM_MODEL` in `.env` to another model id, or enable billing on the Google project. |
+| The agent answers "LLM provider error ... 404 ... no longer available" | Google retired that model id; the message names the replacement. Put it in `AGENT_LLM_MODEL` and restart gateway-api -- no code change needed. |
 | Disk full on the box | `docker system df`, then `docker system prune -a` (stops nothing that's running, but re-pulls on the next deploy). |
 
 Useful once you're on the box:

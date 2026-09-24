@@ -31,7 +31,10 @@ class LatencyQuery(BaseModel):
 
 class RelabelRequest(BaseModel):
     """Input for relabel_event — the one write action."""
-    event_id: str = Field(..., gt=0)
+    # int, matching server_events.id (SERIAL) and the "integer" type the
+    # tool declaration advertises to the model. It was str here, which made
+    # every relabel request fail validation before it reached the database.
+    event_id: int = Field(..., gt=0)
     root_cause: Literal[
         "SERVER_CRASH",
         "HIGH_LATENCY",

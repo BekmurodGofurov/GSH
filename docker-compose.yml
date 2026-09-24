@@ -73,6 +73,9 @@ services:
       # reports it once, up front, instead of leaving gateway-api in a
       # restart loop that also blocks the client (it depends_on gateway-api).
       AGENT_LLM_API_KEY: "${AGENT_LLM_API_KEY:?AGENT_LLM_API_KEY is required in .env - get a key at https://aistudio.google.com/app/apikey}"
+      # Optional: override the Gemini model id without a code change, for
+      # when Google retires the current one. Empty keeps the default.
+      AGENT_LLM_MODEL: "${AGENT_LLM_MODEL:-}"
     depends_on:
       timescaledb:
         condition: service_healthy
