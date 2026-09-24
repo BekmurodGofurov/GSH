@@ -1,0 +1,74 @@
+name: Continuous Deployment to AWS EC2
+
+on:
+  push:
+    # Deploy only from production. `developer` and `feature/*` are covered by
+    # CI; nothing but a merge into `main` reaches the server.
+    branches: [main]
+  # Lets the owner re-run a deploy from the Actions tab without a new commit.
+  workflow_dispatch:
+
+# Two merges landing back to back would otherwise run `docker compose up` on
+# the same box at the same time. Queue them instead, and never cancel a deploy
+# halfway through.
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    name: deploy
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: SSH into EC2 and update app
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USERNAME }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          port: 22
+          # Stop at the first failing command so a broken build cannot silently
+          # leave the old frontend in place and still report success.
+          script_stop: true
+          script: |
+            set -e
+            cd /home/ubuntu/GSH
+
+            # reset --hard instead of pull: the deploy always lands exactly on
+            # origin/main, even if something was touched on the box. The
+            # untracked .env (secrets, never in git) survives this.
+            git fetch origin main
+            git reset --hard origin/main
+
+            # Docker configuration
+            # Brings up timescaledb, redis, the Python services and the
+            # alerting worker. db-migrations runs and exits on its own here.
+            docker compose up -d --build
+
+            # The client container only serves the Vite dev server; in
+            # production nginx serves the static build from /var/www, so this
+            # one stays down.
+            docker compose stop client
+
+            # Dashboard configuration
+            # The build reads client/.env on the server (VITE_API_URL,
+            # VITE_WS_URL, VITE_ADMIN_PATH, CLIENT_PORT) — vite.config.js
+            # loads it from the working directory. That file is gitignored, so
+            # the reset above never touches it, and nothing here may export
+            # those names: a shell variable would override the file and
+            # downgrade the https:// production URLs.
+            cd client
+            npm ci
+            npm run build
+            sudo cp -r dist/* /var/www/gsh-frontend/
+
+            # Each `--build` leaves the previous image layers behind; without
+            # this the EC2 disk fills up after a few dozen deploys.
+            docker image prune -f
