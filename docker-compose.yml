@@ -65,7 +65,14 @@ services:
       REDIS_URL: "${REDIS_URL:-redis://redis:${REDIS_CONTAINER_PORT:-${REDIS_PORT:?REDIS_PORT is required in .env}}}"
       ADMIN_USERNAME: "${ADMIN_USERNAME:?ADMIN_USERNAME is required in .env}"
       ADMIN_PASSWORD: "${ADMIN_PASSWORD:?ADMIN_PASSWORD is required in .env}"
+      # Optional second admin auth path (X-API-Key header). Empty disables it.
+      ADMIN_API_KEY: "${ADMIN_API_KEY:-}"
       FRONTEND_URL: "${FRONTEND_URL:-http://${HOST:-${DOMAIN:-localhost}}:${CLIENT_HOST_PORT:-${CLIENT_PORT:-3000}}}"
+      # Required: app/agent/router.py raises at import if this is missing, so
+      # without it the container cannot start at all. Marked :? so compose
+      # reports it once, up front, instead of leaving gateway-api in a
+      # restart loop that also blocks the client (it depends_on gateway-api).
+      AGENT_LLM_API_KEY: "${AGENT_LLM_API_KEY:?AGENT_LLM_API_KEY is required in .env - get a key at https://aistudio.google.com/app/apikey}"
     depends_on:
       timescaledb:
         condition: service_healthy
@@ -125,6 +132,8 @@ services:
       DB_URL: "${DB_URL:-postgresql://postgres:${POSTGRES_PASSWORD}@timescaledb:${TIMESCALE_CONTAINER_PORT:-${TIMESCALE_PORT:-5432}}/game_monitor}"
       ANOMALY_API_URL: "${ANOMALY_API_URL:-http://anomaly-detection-ml:${ANOMALY_ML_CONTAINER_PORT:-${ANOMALY_ML_PORT:?ANOMALY_ML_PORT is required in .env}}/predict/anomaly}"
       ROOT_CAUSE_API_URL: "${ROOT_CAUSE_API_URL:-http://root-cause-ml:${ROOT_CAUSE_ML_CONTAINER_PORT:-${ROOT_CAUSE_ML_PORT:?ROOT_CAUSE_ML_PORT is required in .env}}/predict/root-cause}"
+      # bridge.py reads this; without it here the .env value was ignored.
+      BRIDGE_POLL_INTERVAL: "${BRIDGE_POLL_INTERVAL:-5}"
     depends_on:
       timescaledb:
         condition: service_healthy
