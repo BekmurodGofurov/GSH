@@ -9,6 +9,7 @@ import { AnalyticsView } from './components/views/AnalyticsView';
 import { InsightsView } from './components/views/InsightsView';
 import { ServerDetailModal } from './components/dashboard/ServerDetailModal';
 import { NotificationsDrawer } from './components/common/NotificationsDrawer';
+import { AskPanel } from './components/common/AskPanel';
 import { AdminWrapper } from './components/views/AdminWrapper';
 
 const rawAdminPath = import.meta.env.VITE_ADMIN_PATH || '/secret-admin';
@@ -101,6 +102,7 @@ export function App() {
   } = useServerData();
 
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
+  const [isAskOpen, setIsAskOpen] = useState(false);
 
   const crashCount = (events || []).filter(
     (e) => (e.event_type || '').toUpperCase() === 'CRASH'
@@ -126,6 +128,7 @@ export function App() {
       theme={theme}
       toggleTheme={toggleTheme}
       onOpenNotifications={() => setIsNotificationsOpen(true)}
+      onOpenAsk={() => setIsAskOpen(true)}
       unreadCount={notifications.length}
     >
       {/* Dynamic View rendering */}
@@ -222,6 +225,12 @@ export function App() {
         }}
         onClearAll={clearAllNotifications}
       />
+      
+      <AskPanel
+        isOpen={isAskOpen}
+        onClose={() => setIsAskOpen(false)}
+      />
+      
     </Layout>
   );
 }

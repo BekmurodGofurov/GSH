@@ -24,6 +24,7 @@ export function Layout({
   toggleTheme,
   onOpenNotifications,
   unreadCount,
+  onOpenAsk,
 }) {
   return (
     <div className="min-h-screen flex flex-col font-sans bg-grid-pattern antialiased">
@@ -41,6 +42,7 @@ export function Layout({
         toggleTheme={toggleTheme}
         onOpenNotifications={onOpenNotifications}
         unreadCount={unreadCount}
+        onOpenAsk={onOpenAsk}
       />
 
       {/* Slack / YouTube Style Persistent Connection Banner */}

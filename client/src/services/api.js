@@ -155,4 +155,16 @@ export const api = {
       
     });
   },
+
+  async askAgent(question) {
+    // 15 second timeout — LLM calls take much longer than DB reads.
+    // bypassCircuit: false — the circuit breaker protects this too.
+    return fetchSafe('/api/v1/agent/ask', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ question }),
+      timeout: 15000,
+      bypassCircuit: false,
+    });
+  },
 };
