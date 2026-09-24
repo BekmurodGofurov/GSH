@@ -78,6 +78,21 @@ Branch protection is configured in GitHub's settings, not in the repo:
 require a PR and a passing `CI passed` check on both `main` and
 `developer`, and disallow direct pushes.
 
+## Git — agents never commit on their own
+
+An agent must **not** run `git commit`, `git push`, or open a pull
+request unless the repository owner asks for it in that message.
+Finishing a task is not permission. Stop at a clean working tree,
+report what changed, and let the owner decide.
+
+When the owner does ask, the commit and the PR go out **under his name
+alone**. Do not add `Co-Authored-By:` trailers for the agent, and do not
+add a "generated with \<tool\>" line to PR descriptions — this repo's
+history carries the owner's authorship only.
+
+Being asked once does not authorize the next one. Each commit, push, or
+PR needs its own request.
+
 ## Testing
 
 Every new agent tool must have:
