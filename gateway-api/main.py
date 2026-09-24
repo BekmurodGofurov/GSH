@@ -8,6 +8,10 @@ from fastapi import FastAPI, Query, WebSocket, WebSocketDisconnect, HTTPExceptio
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.encoders import jsonable_encoder
 
+# Agent harness router — mounted at /api/v1/agent/ask
+# Import is deferred here; the module validates AGENT_LLM_API_KEY at load time.
+from app.agent import router as agent_module
+
 # Support standalone and container imports for shared_schemas
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
@@ -102,6 +106,8 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+app.include_router(agent_module.router)
 
 @app.get("/")
 async def root():

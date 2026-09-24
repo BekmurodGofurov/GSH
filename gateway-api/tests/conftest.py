@@ -17,6 +17,7 @@ os.environ.setdefault("ADMIN_USERNAME", "test-admin")
 os.environ.setdefault("ADMIN_PASSWORD", "test-password")
 os.environ.setdefault("FRONTEND_URL", "http://localhost:5173")
 os.environ.setdefault("ADMIN_API_KEY", "test-api-key")
+os.environ.setdefault("AGENT_LLM_API_KEY", "test-agent-key")
 
 import pytest  # noqa: E402
 from httpx import ASGITransport, AsyncClient  # noqa: E402
@@ -26,7 +27,6 @@ import main  # noqa: E402
 ADMIN_USERNAME = os.environ["ADMIN_USERNAME"]
 ADMIN_PASSWORD = os.environ["ADMIN_PASSWORD"]
 ADMIN_API_KEY = os.environ["ADMIN_API_KEY"]
-
 
 class FakeConnection:
     """Records the SQL it was handed and replays canned results."""
