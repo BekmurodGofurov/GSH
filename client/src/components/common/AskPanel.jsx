@@ -1,6 +1,10 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import { X, Bot, Send, Loader2, Wrench, AlertTriangle } from 'lucide-react';
 import { api } from '../../services/api';
+
+// How tall the input is allowed to grow before it starts scrolling.
+const MAX_INPUT_HEIGHT = 180;
 
 export function AskPanel({ isOpen, onOpen, onClose }) {
   const [question, setQuestion] = useState('');
@@ -8,6 +12,23 @@ export function AskPanel({ isOpen, onOpen, onClose }) {
   const [response, setResponse] = useState(null);   // { answer, tool_used }
   const [error, setError] = useState(null);
   const textareaRef = useRef(null);
+
+  // Grow the input with its content instead of sitting there as a fixed
+  // multi-line box: it starts as a single line and only takes the room it
+  // actually needs, up to MAX_INPUT_HEIGHT.
+  const resizeInput = useCallback(() => {
+    const el = textareaRef.current;
+    if (!el) return;
+    el.style.height = 'auto';   // shrink first, so deleting text shrinks it back
+    const needed = el.scrollHeight;
+    el.style.height = `${Math.min(needed, MAX_INPUT_HEIGHT)}px`;
+    // Only show a scrollbar once the input is capped. Leaving overflow on
+    // auto the whole time makes the track flicker in beside the text as
+    // soon as the content is a pixel taller than the box.
+    el.style.overflowY = needed > MAX_INPUT_HEIGHT ? 'auto' : 'hidden';
+  }, []);
+
+  useEffect(resizeInput, [question, resizeInput]);
 
   // Focus the textarea whenever the panel opens
   useEffect(() => {
@@ -50,7 +71,12 @@ export function AskPanel({ isOpen, onOpen, onClose }) {
     }
   }
 
-  return (
+  // Rendered into <body>: inside the app tree these fixed layers are
+  // children of <main class="... space-y-6">, and that utility puts a 24px
+  // top margin on every child after the first. Margins apply to fixed
+  // elements too, so the backdrop and the panel were pushed 24px down and
+  // ended 24px short -- leaving the sticky header uncovered at the top.
+  return createPortal(
     <>
       {/* Floating trigger, bottom-right. On mobile it sits above the bottom
           nav bar in Layout so it never covers those buttons. */}
@@ -66,13 +92,17 @@ export function AskPanel({ isOpen, onOpen, onClose }) {
         <Bot className="w-6 h-6" />
       </button>
 
-      {/* Dark backdrop — clicking it closes the panel */}
-      {isOpen && (
-        <div
-          className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-40 transition-opacity"
-          onClick={onClose}
-        />
-      )}
+      {/* Dark backdrop — clicking it closes the panel.
+          Always mounted so it can fade in and out over the same 300ms the
+          panel takes to slide; mounting it on open made it snap in while
+          the panel was still moving. */}
+      <div
+        onClick={onClose}
+        aria-hidden={!isOpen}
+        className={`fixed inset-0 z-40 bg-slate-950/30 dark:bg-slate-950/50 backdrop-blur-[2px] transition-opacity duration-300 ease-in-out ${
+          isOpen ? 'opacity-100' : 'opacity-0 pointer-events-none'
+        }`}
+      />
 
       {/* The panel itself */}
       <div
@@ -190,9 +220,9 @@ export function AskPanel({ isOpen, onOpen, onClose }) {
               onChange={(e) => setQuestion(e.target.value)}
               onKeyDown={handleKeyDown}
               placeholder="Ask about server health, latency, events…"
-              rows={4}
+              rows={1}
               disabled={isLoading}
-              className="w-full resize-none rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-slate-100 text-sm px-3 py-2.5 placeholder:text-slate-400 dark:placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-cyan-500/50 focus:border-cyan-400 dark:focus:border-cyan-600 disabled:opacity-50 transition-colors"
+              className="w-full resize-none overflow-hidden rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-slate-100 text-sm px-3 py-2.5 placeholder:text-slate-400 dark:placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-cyan-500/50 focus:border-cyan-400 dark:focus:border-cyan-600 disabled:opacity-50 transition-colors"
             />
             <div className="flex items-center justify-between">
               <span className="text-[10px] text-slate-400 font-mono">
@@ -214,6 +244,7 @@ export function AskPanel({ isOpen, onOpen, onClose }) {
           </div>
         </form>
       </div>
-    </>
+    </>,
+    document.body
   );
 }

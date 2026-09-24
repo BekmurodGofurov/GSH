@@ -64,6 +64,11 @@ npm run dev
 dev-server proxies, so the dev server and the built app hit the same
 paths.
 
+How the client is put together — data flow, the `{data, error}` fetch
+contract, the offline behaviour, styling and test conventions — is in
+[frontend.md](frontend.md), with the rules an agent must follow in
+[skills/frontend/SKILL.md](../skills/frontend/SKILL.md).
+
 ## Branches and PRs
 
 ```
