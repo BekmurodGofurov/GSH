@@ -1,0 +1,41 @@
+# Applies to builds whose context is the repo root (gateway-api,
+# ingestion-service). Without this, `COPY <service>/ /app/` bakes that
+# service's .env -- including the database password -- into the image,
+# and every build uploads .git and the local .venv dirs as build context.
+
+# Secrets. Never let an env file into an image; compose supplies the
+# values at runtime via each service's `environment:` block.
+# Patterns are relative to the build context root, so a bare ".env" would
+# only cover the root file -- the "**/" forms are what catch
+# ingestion-service/.env and client/.env.
+.env
+.env.*
+**/.env
+**/.env.*
+!.env.example
+!**/.env.example
+
+# VCS and local tooling
+.git
+.gitignore
+*.md
+!README.md
+
+# Python local artifacts
+**/__pycache__/
+**/*.py[cod]
+**/.venv/
+**/venv/
+**/.pytest_cache/
+.coverage
+htmlcov/
+
+# Node / build output
+**/node_modules/
+**/dist/
+.dist/
+
+# OS / IDE
+.DS_Store
+.vscode/
+.idea/
