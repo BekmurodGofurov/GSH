@@ -4,3 +4,4 @@ asyncpg==0.29.0
 pydantic==2.6.1
 redis==5.0.1
 websockets==12.0
+google-genai==1.16.0
