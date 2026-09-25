@@ -22,6 +22,24 @@ Every port and required setting in `docker-compose.yml` is read from
 `:?...is required in .env`) — don't hardcode ports directly into the
 compose file.
 
+## Two environments share one box
+
+Production (`main`, `/home/ubuntu/GSH`) and staging (`developer`,
+`/home/ubuntu/GSH-staging`) run as two compose projects on the same
+EC2 host; `.github/workflows/cd.yml` deploys each after CI passes on
+its branch. That only works because nothing in `docker-compose.yml` is
+globally unique:
+
+- Every `container_name` is `${COMPOSE_PROJECT_NAME:-gsh}-<service>`.
+  A new service must follow the same pattern — a bare
+  `container_name: gsh-foo` would collide between the two stacks.
+- Every published port comes from `.env`, so staging can shift them.
+- Named volumes are left unprefixed; compose already scopes them to the
+  project (`gsh_timescale_data` vs `gsh-staging_timescale_data`).
+  Don't set an explicit `name:` on a volume or network.
+
+Setup and troubleshooting for both are in `docs/deployment.md`.
+
 ## HOST / DOMAIN
 
 `docker-compose.yml` builds URLs with this fallback chain:
