@@ -39,8 +39,12 @@ Before building any tool, check which side of this line it falls on:
 
 **Agent may WRITE (via tools):**
 - Test events — published to Redis Streams only, **never a direct DB write**
-- Event root-cause re-labels — using the same DB query as
-  `POST /api/v1/events/{id}/label`
+
+The existing `relabel_event` tool is an exception that AGENTS.md does not yet
+cover: it writes `server_events` directly, with no authentication. Don't
+copy it as a pattern for new write tools, and don't add another write tool
+until the owner has decided how writes are allowed (see "Known gaps" in
+`docs/agents.md`).
 
 **Agent may NOT touch, under any circumstances:**
 - `users` table or any auth data
@@ -63,7 +67,11 @@ Every tool is a plain async Python function. Rules:
 - Accept only typed arguments matching a Pydantic schema — no `**kwargs`,
   no free-form strings that get passed to SQL.
 - Use **pre-written, fixed SQL queries** — do not build query strings from
-  user input. Reuse the existing query constants from `main.py` where possible.
+  user input. Reuse the query constants in `gateway-api/queries.py`, and put
+  any query shared with a REST route there too. **Never `import main`** from
+  anything under `app/`: `main.py` imports the agent router at load time, so
+  that import closes a cycle that crashes the service under `python main.py`
+  (how the Dockerfile starts it). `test_entrypoint.py` guards this.
 - Return a plain Python dict or list that can be serialised to JSON.
 - Raise a clear `ValueError` or `HTTPException` for invalid input —
   never let a raw exception propagate to the LLM context.
@@ -91,17 +99,34 @@ here is what makes "never allow raw SQL" true by construction.
 
 ### 3. Add the tool to the whitelist in `router.py`
 
-The whitelist is an explicit list of callable + schema pairs inside `router.py`.
-The LLM is only shown tools on this list — it cannot call anything else.
+The whitelist is `_TOOL_REGISTRY` in `router.py`, a list of dicts. The LLM is
+only shown tools on this list — it cannot call anything else, and a request
+for any other name is refused with 400.
 
 ```python
-TOOLS = [
-    ToolDefinition(name="get_server_summary",   fn=tools.get_server_summary,   schema=None),
-    ToolDefinition(name="get_recent_events",    fn=tools.get_recent_events,    schema=schemas.EventQuery),
-    ToolDefinition(name="get_average_latency",  fn=tools.get_average_latency,  schema=schemas.LatencyQuery),
-    ToolDefinition(name="relabel_event",        fn=tools.relabel_event,        schema=schemas.RelabelRequest),
+_TOOL_REGISTRY = [
+    ...,
+    {
+        "name": "get_average_latency",
+        "description": "Returns average ping ... over the last N minutes. ...",  # the model reads this
+        "fn": tools.get_average_latency,
+        "schema": schemas.LatencyQuery,       # None if the tool takes no arguments
+        "parameters": {                       # JSON schema shown to Gemini
+            "type": "object",
+            "properties": {
+                "minutes": {"type": "integer", "description": "Time window in minutes (1–60). Default is 10."},
+                "server_id": {"type": "string", "description": "Optional. ..."},
+            },
+            "required": [],
+        },
+    },
 ]
 ```
+
+`parameters` is what the model follows; `schema` is what the server enforces.
+Keep their names, types and limits in agreement — `RelabelRequest.event_id`
+was once `str` while `parameters` said `integer`, and every relabel failed
+validation.
 
 Adding a function to `tools.py` without adding it here does nothing — the LLM
 will never know the function exists.

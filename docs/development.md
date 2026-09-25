@@ -74,12 +74,18 @@ contract, the offline behaviour, styling and test conventions — is in
 ```
 feature/* ──PR──► developer ──PR──► main
               (CI must pass)   (CI must pass)
+                    │                 │
+                    ▼                 ▼
+                 staging          production
 ```
 
 - `feature/*` — your working branch. Open the PR against `developer`.
-- `developer` — integration branch. Merge only when CI is green.
-- `main` — production. Only merges from `developer`, and every push to
-  it **deploys** ([deployment.md](deployment.md)).
+  Name it `feature/<what>` — not `future/…`.
+- `developer` — integration branch. Merge only when CI is green. Every
+  push that passes CI **deploys to staging**.
+- `main` — production. Only merges from `developer`, and every push
+  that passes CI **deploys to production**
+  ([deployment.md](deployment.md)).
 
 Branch protection lives in GitHub's settings, not in the repo: a PR and
 a passing `CI passed` check are required on both `main` and
@@ -209,6 +215,8 @@ commit them.
 [AGENTS.md](../AGENTS.md) asks that these files be updated when the
 architecture or the rules change. The docs in this directory are
 written to state plainly when something is a spec rather than an
-implementation (see the "not built yet" sections) — keep that habit; a
-doc that quietly describes code that doesn't exist is worse than no
-doc.
+implementation, and what is known to be missing (see "Known gaps" in
+[agents.md](agents.md)) — keep that habit; a doc that quietly describes
+code that doesn't exist is worse than no doc. The reverse matters as
+much: when code lands, update the doc that said it wasn't built yet in
+the same PR.

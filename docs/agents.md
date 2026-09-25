@@ -1,96 +1,225 @@
 # Agent Harness, Tools, and Security
 
-## Current state: not built yet
+GSH has an in-product LLM agent: the **Ask** panel in the dashboard. A
+user asks a question in plain language ("What is the average latency
+right now?"), the agent calls one of a fixed set of tools against the
+live database, and answers from what the tool returned. It can also
+perform one write action — re-labelling an incident's root cause.
 
-`gateway-api/app/agent/` exists as an empty directory — no route file,
-no tool definitions, no LLM client, nothing. No LLM provider SDK
-(Anthropic, OpenAI, or otherwise) appears anywhere in any
-`requirements.txt` in this repo. What follows is the specification this
-layer needs to be built against — from [AGENTS.md](../AGENTS.md) — not
-a description of running code. Update this doc as the implementation
-lands so it stops being a spec and starts being documentation of what
-exists.
+Not to be confused with [AGENTS.md](../AGENTS.md): that file governs how
+an AI *coding* assistant edits this repository. This doc is about the
+agent that runs inside the product, for end users.
 
-Note: this repo's `AGENTS.md` also happens to be read by Claude Code
-itself as coding-agent instructions. Don't confuse the two — that file
-governs how an AI coding assistant edits this codebase; this doc is
-about the in-product LLM agent GSH's backend is meant to expose to end
-users (e.g. via the Telegram bot or the dashboard).
+## Where it lives
 
-## What the agent is for
+The agent is part of `gateway-api`, not a separate service.
 
-An LLM agent that can answer questions about server health using live
-data — e.g. "why did the Warsaw server drop players an hour ago?" —
-grounded in `server_metrics` / `server_events` / `monitored_servers`,
-and able to trigger a small, safe set of write actions (currently:
-publishing test events).
+| File | What it holds |
+|---|---|
+| `gateway-api/app/agent/router.py` | `POST /api/v1/agent/ask`, the Gemini client, the tool whitelist (`_TOOL_REGISTRY`), retry and error handling |
+| `gateway-api/app/agent/tools.py` | one async function per tool, each running fixed SQL |
+| `gateway-api/app/agent/schemas.py` | Pydantic models: the request/response of the endpoint and each tool's arguments |
+| `gateway-api/queries.py` | SQL shared by the REST API and the tools (`LATEST_SERVERS_QUERY`) |
+| `gateway-api/main.py` | mounts the router (`app.include_router(agent_module.router)`) |
+| `client/src/components/common/AskPanel.jsx` | the slide-in Ask panel and its floating button |
+| `client/src/services/api.js` | `api.askAgent(question)` |
+| `gateway-api/tests/test_agent_tools.py` | tool and endpoint tests |
 
-## Tool boundary (from AGENTS.md)
+## How a question is answered
 
-The agent must never act directly on the database or call raw SQL —
-every capability it has must be a discrete, named, whitelisted
-function ("agent tool") with a fixed input/output schema.
+```
+AskPanel ──POST /api/v1/agent/ask {question}──► gateway-api
+                                                    │
+         ┌──────────────────────────────────────────┘
+         ▼
+  1. Gemini call #1: question + system instruction + tool declarations
+         │
+         ├─ no tool requested ──► answer = model text ──────────────┐
+         │                                                          │
+         ▼ function_call {name, args}                               │
+  2. name in _TOOL_REGISTRY?  no ──► 400                            │
+  3. args through the tool's Pydantic schema  invalid ──► 422       │
+  4. run the tool function against the DB pool                      │
+  5. Gemini call #2: question + tool result as JSON text,           │
+     no tools offered, "answer using only the tool data"            │
+         │                                                          │
+         ▼                                                          ▼
+  {answer, tool_used} ◄─────────────────────────────────────────────┘
+```
 
-**May READ**, via tools, from:
-- server metrics (`server_metrics`)
-- server status (`monitored_servers.status`)
-- anomalies / events (`server_events`)
+Details worth knowing:
 
-**May WRITE**, via tools:
-- test events only, and only by publishing to Redis Streams — never a
-  direct database write. (Today, `server_metrics_stream` is the only
-  Redis Stream in the codebase, and nothing consumes it yet — see
-  [database.md](database.md#redis-streams). A "write test event" tool
-  would need either a consumer for that stream or a new
-  purpose-built stream, plus a clear definition of what a "test event"
-  is downstream.)
+- **One tool per question.** Only the first `function_call` in the
+  model's reply is executed, and call #2 offers no tools. A question
+  that needs two tools gets answered from one of them (see
+  [Known gaps](#known-gaps)).
+- **The tool result goes back as text, not as a function response.**
+  Gemini rejects a replayed `functionCall` part without the
+  `thought_signature` it was issued with, and that signature is not
+  available on the parsed response. Inlining the JSON works across
+  model revisions. The comment in `router.py` explains this.
+- **No memory.** Each request is independent; there is no
+  conversation history on the server or in the panel.
+- **Temperature 0.1** on both calls, to keep answers factual.
+- The Gemini SDK is synchronous, so each call runs in
+  `asyncio.to_thread` — calling it inline would block the event loop,
+  the dashboard WebSocket included.
 
-**May NOT modify, under any circumstances:**
-- `users`
-- production configuration
-- database schema
-- secrets (API keys, Telegram tokens, DB passwords, LLM provider keys)
+## Tools
 
-If a proposed capability doesn't fit inside this boundary, it doesn't
-get built as a tool — that requires updating AGENTS.md first, as a
-deliberate decision, not a workaround in code.
+| Tool | Kind | Arguments (validated) | What it does |
+|---|---|---|---|
+| `get_server_summary` | read | none | every monitored server with its latest metric — the same `LATEST_SERVERS_QUERY` that `GET /api/v1/servers` serves |
+| `get_recent_events` | read | `limit` 1–50, default 10 (`EventQuery`) | latest rows from `server_events`: type, root cause, label source, message, anomaly score, diagnosis |
+| `get_average_latency` | read | `minutes` 1–60, default 10; optional `server_id` (`LatencyQuery`) | 1-minute buckets of average ping and players per server — the same query as `GET /api/v1/analytics/ping-buckets`, plus the optional server filter |
+| `relabel_event` | **write** | `event_id` int > 0; `root_cause` one of `SERVER_CRASH`, `HIGH_LATENCY`, `DDOS_ATTACK`, `REGIONAL_OUTAGE`, `PLAYER_DROP`, `MAINTENANCE` (`RelabelRequest`) | `UPDATE server_events SET root_cause = $1, label_source = 'manual'` — the same write as `POST /api/v1/events/{id}/label`. 404 if the event doesn't exist. The change shows up on the dashboard within one WebSocket tick (3s). |
 
-## Why the boundary is a whitelist, not a filter
+## Safety model
 
-The rule isn't "validate what the LLM tries to do" — it's "the LLM can
-only reach code paths that were built for it." Concretely: no tool
-should accept a free-form query string, build SQL from it, or pass
-through to a generic "run this DB query" function. Each tool is a
-fixed Python function with a fixed Pydantic schema for its arguments,
-and the model can only ever call functions that exist. This is what
-makes "never allow raw SQL" and "no unauthorized writes" true by
-construction rather than by hoping validation catches everything.
+The rule is a **whitelist, not a filter**: the model can only reach
+code paths that were built for it.
 
-## Testing requirement
+- **The whitelist is enforced in code.** The model is shown only the
+  tools in `_TOOL_REGISTRY`, and a request for any other name is
+  refused with 400. A function in `tools.py` that isn't registered is
+  invisible to the model.
+- **Arguments are validated before the database is touched.** Each
+  registered tool names its Pydantic schema; a hallucinated value
+  (wrong type, out of range, unknown root cause) is a 422.
+- **The model never writes SQL.** Every tool runs a fixed,
+  parameterised query; arguments are only ever bound as `$1`, `$2`.
+  `get_average_latency` has two fixed queries (with and without the
+  server filter) rather than one built from input. No tool takes a
+  free-form query or table name.
+- **The model never sees credentials or SQL** — only the tool
+  declarations and the JSON a tool returned.
 
-Every new agent tool needs three tests before it ships — success,
-invalid input, and database/service failure handling — see
-[skills/testing/SKILL.md](../skills/testing/SKILL.md) for what each of
-those needs to cover and what to do about the fact that no test
-framework is set up in this repo yet.
+The boundary itself comes from [AGENTS.md](../AGENTS.md):
 
-## Suggested shape for a first implementation
+- **May read:** server metrics, server status, anomalies, events.
+- **May write:** test events, published to Redis Streams only.
+- **May not modify:** users, production configuration, database
+  schema, secrets.
 
-Not prescriptive, but a reasonable starting point given the existing
-`gateway-api` structure:
+`relabel_event` is a direct database write, which that list does not
+allow — see [Known gaps](#known-gaps). A new capability that doesn't
+fit the boundary needs AGENTS.md updated first, as a deliberate
+decision, not a workaround in code.
 
-1. `gateway-api/app/agent/tools.py` — one function per tool, each
-   wrapping an existing read path (e.g. reuse the same queries
-   `/api/v1/servers`, `/api/v1/events` already use, rather than writing
-   new SQL).
-2. `gateway-api/app/agent/schemas.py` — Pydantic models for each tool's
-   input/output, or reuse models from `shared_schemas` if the shapes
-   already exist there.
-3. A single agent entrypoint (HTTP route or internal function) that
-   holds the LLM client and the fixed list of tools it's allowed to
-   call — the whitelist should be enforced in code, not just by
-   convention.
-4. Wire the "write test event" tool to Redis only after deciding how
-   test events are consumed downstream — writing to an unconsumed
-   stream (like `server_metrics_stream` today) would just create a
-   second orphaned write path.
+## Configuration
+
+| Variable | Required | Meaning |
+|---|---|---|
+| `AGENT_LLM_API_KEY` | **yes** | Gemini API key ([aistudio.google.com/app/apikey](https://aistudio.google.com/app/apikey)). `router.py` raises at import without it, and `main.py` imports the router at load time, so the whole gateway refuses to start — not just the agent. `docker-compose.yml` marks it `:?` so the error shows once, up front. |
+| `AGENT_LLM_MODEL` | no | Gemini model id. Empty uses the code default, `gemini-3.6-flash`. When Google retires a model the API answers 404 naming the replacement — change this value and restart `gateway-api`, no code change needed. |
+
+**Cost:** every question that uses a tool is two Gemini requests. On
+the free tier (20 requests per day per model) that is about **10
+questions a day**. Enable billing, or give staging its own key (see
+[deployment.md](deployment.md#staging)), before relying on it for a
+demo.
+
+## Errors
+
+The endpoint never lets a provider or tool exception escape as a bare
+500: those are rendered outside the CORS middleware, and the browser
+would report a misleading CORS error instead of the real cause.
+
+| Status | When |
+|---|---|
+| 422 | `question` empty or longer than 500 characters |
+| 503 | the database pool isn't ready yet |
+| 400 | the model asked for a tool that isn't whitelisted |
+| 422 | the model passed arguments the tool's schema rejects |
+| 404 | `relabel_event` on an event id that doesn't exist |
+| 500 | a tool raised (e.g. the database query failed) — `Tool '<name>' failed: …` |
+| 502 | the LLM provider failed — `LLM provider error for model '<id>': …`. The message names the cause (bad key, retired model, quota). |
+
+Provider retries: **503** (model temporarily overloaded) is retried up
+to 3 attempts with 1s and 2s backoff. **429** is *not* retried — on this
+API it usually means the quota for the period is spent, and each retry
+would only burn more of it.
+
+## Frontend
+
+`AskPanel` is mounted once in `App.jsx` and rendered into
+`document.body` through a portal (see [frontend.md](frontend.md)). It
+shows a floating button bottom-right, example prompts, a loading state,
+the answer, and **"Tool used: …"** under it so it is visible which tool
+grounded the answer. Ctrl/Cmd+Enter sends.
+
+`api.askAgent()` uses a 15s timeout instead of the usual 3.5s, since
+two LLM round trips are much slower than a database read.
+
+## Adding a tool
+
+Step by step, with the rules, in
+[skills/agent/SKILL.md](../skills/agent/SKILL.md). In short:
+
+1. An async function in `tools.py` taking `db_pool` first, running
+   fixed SQL. Shared SQL goes in `queries.py` — **never** `import main`
+   from `app/`: `main` imports the router at load time, and the cycle
+   crashes the service under `python main.py`.
+2. A Pydantic schema in `schemas.py` for its arguments.
+3. An entry in `_TOOL_REGISTRY` in `router.py`: `name`, a
+   `description` the model will read, `fn`, `schema`, and the
+   JSON-schema `parameters` shown to Gemini. Keep `parameters` and the
+   Pydantic schema in agreement — the model follows `parameters`, the
+   server enforces the schema.
+4. The three tests AGENTS.md requires — success, invalid input,
+   database failure — in `tests/test_agent_tools.py`
+   ([skills/testing/SKILL.md](../skills/testing/SKILL.md)).
+5. An example prompt in `AskPanel` if it's worth discovering.
+
+## Tests
+
+```bash
+cd gateway-api && pytest tests/test_agent_tools.py -v
+```
+
+Covered: each tool's success, invalid-input and database-failure cases;
+and the endpoint end to end with Gemini mocked — a tool call answered
+from the tool result, an empty question, the database not ready, a
+provider error surfacing as 502, a 503 being retried, and a 429 not
+being retried.
+
+Not yet covered: the refusal of an unknown tool name, a 422 for bad
+model-supplied arguments through the endpoint, and anything about
+authentication (there is none yet).
+
+## Known gaps
+
+What the harness does not do yet, roughly in order of importance.
+
+1. **No authentication.** `/api/v1/agent/ask` is open, and the Ask
+   panel is shown to every visitor. `POST /api/v1/events/{id}/label`
+   requires an admin, but anyone can make the same write through the
+   agent. It also means anyone can spend the Gemini quota.
+2. **The write action breaks the AGENTS.md boundary.** AGENTS.md allows
+   writing test events to Redis Streams only; `relabel_event` updates
+   `server_events` directly. Either AGENTS.md is updated to allow it
+   (with conditions — admin only, confirmation, audit) or the tool
+   changes.
+3. **Agent labels look like human labels.** The tool sets
+   `label_source = 'manual'`, and `root-cause-ml/train.py` trains on
+   `server_events.root_cause`. A relabel made through the agent —
+   today, by anyone — becomes training data indistinguishable from an
+   admin's correction. A separate value such as `'agent'` would let
+   training filter it.
+4. **No confirmation and no audit trail.** The write runs as soon as
+   the model asks for it, and nothing records who asked or what
+   changed.
+5. **One tool per question, no memory.** "Summarize what's happening
+   on the dashboard" needs servers, events and latency, but gets one.
+   "Relabel the last DDoS event" needs `get_recent_events` then
+   `relabel_event`, so it can't be done in one question. A real loop
+   (call a tool, feed the result back, allow another, up to N steps)
+   fixes both.
+6. **Event ids aren't shown in the UI,** so a user has to ask for recent
+   events first to find the id to relabel.
+7. Small edge cases in `router.py`: a tool that has a schema but is
+   called with no arguments skips validation (so `relabel_event` with
+   no args is a 500, not a 422); a reply with no candidates or no
+   content (e.g. blocked by Gemini's safety filter) raises instead of
+   returning a clear error; and with retries, a slow provider can take
+   longer than the panel's 15s timeout.

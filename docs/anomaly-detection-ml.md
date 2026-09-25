@@ -159,7 +159,7 @@ docker compose up -d --build anomaly-detection-ml anomaly-bridge
 docker compose logs -f anomaly-bridge
 
 # Verify server_events is being written
-docker exec -it gsh-timescaledb psql -U postgres -d game_monitor \
+docker compose exec timescaledb psql -U postgres -d game_monitor \
   -c "SELECT time, server_id, event_type, root_cause, message FROM server_events ORDER BY time DESC LIMIT 10;"
 ```
 

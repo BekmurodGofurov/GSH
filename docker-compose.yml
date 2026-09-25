@@ -1,7 +1,12 @@
+# Container names are prefixed with the compose project name so that
+# production and staging can run side by side on one host. Production
+# leaves COMPOSE_PROJECT_NAME unset and keeps the historical gsh-* names;
+# staging sets COMPOSE_PROJECT_NAME=gsh-staging in its own .env, which
+# also gives it its own network and its own timescale_data volume.
 services:
   timescaledb:
     image: timescale/timescaledb:latest-pg15
-    container_name: gsh-timescaledb
+    container_name: ${COMPOSE_PROJECT_NAME:-gsh}-timescaledb
     command: postgres -c max_connections=100 -c shared_buffers=256MB
     environment:
       POSTGRES_USER: postgres
@@ -22,7 +27,7 @@ services:
 
   db-migrations:
     image: postgres:15-alpine
-    container_name: gsh-db-migrations
+    container_name: ${COMPOSE_PROJECT_NAME:-gsh}-db-migrations
     environment:
       DB_URL: "${DB_URL:-postgresql://postgres:${POSTGRES_PASSWORD}@timescaledb:${TIMESCALE_CONTAINER_PORT:-${TIMESCALE_PORT:-5432}}/game_monitor}"
     volumes:
@@ -41,7 +46,7 @@ services:
 
   redis:
     image: redis:7-alpine
-    container_name: gsh-redis
+    container_name: ${COMPOSE_PROJECT_NAME:-gsh}-redis
     command: ["redis-server", "--port", "${REDIS_CONTAINER_PORT:-${REDIS_PORT:?REDIS_PORT is required in .env}}"]
     ports:
       - "${REDIS_HOST_PORT:-${REDIS_PORT:?REDIS_PORT is required in .env}}:${REDIS_CONTAINER_PORT:-${REDIS_PORT:?REDIS_PORT is required in .env}}"
@@ -56,7 +61,7 @@ services:
     build:
       context: .
       dockerfile: gateway-api/Dockerfile
-    container_name: gsh-gateway-api
+    container_name: ${COMPOSE_PROJECT_NAME:-gsh}-gateway-api
     ports:
       - "${GATEWAY_HOST_PORT:-${GATEWAY_PORT:?GATEWAY_PORT is required in .env}}:${GATEWAY_CONTAINER_PORT:-${GATEWAY_PORT:?GATEWAY_PORT is required in .env}}"
     environment:
@@ -87,7 +92,7 @@ services:
     build:
       context: .
       dockerfile: ingestion-service/Dockerfile
-    container_name: gsh-ingestion-service
+    container_name: ${COMPOSE_PROJECT_NAME:-gsh}-ingestion-service
     ports:
       - "${INGESTION_HOST_PORT:-${INGESTION_PORT:?INGESTION_PORT is required in .env}}:${INGESTION_CONTAINER_PORT:-${INGESTION_PORT:?INGESTION_PORT is required in .env}}"
     environment:
@@ -103,7 +108,7 @@ services:
     restart: unless-stopped
   anomaly-detection-ml:
     build: ./anomaly-detection-ml
-    container_name: gsh-anomaly-detection-ml
+    container_name: ${COMPOSE_PROJECT_NAME:-gsh}-anomaly-detection-ml
     ports:
       - "${ANOMALY_ML_HOST_PORT:-${ANOMALY_ML_PORT:?ANOMALY_ML_PORT is required in .env}}:${ANOMALY_ML_CONTAINER_PORT:-${ANOMALY_ML_PORT:?ANOMALY_ML_PORT is required in .env}}"
     environment:
@@ -116,7 +121,7 @@ services:
 
   root-cause-ml:
     build: ./root-cause-ml
-    container_name: gsh-root-cause-ml
+    container_name: ${COMPOSE_PROJECT_NAME:-gsh}-root-cause-ml
     ports:
       - "${ROOT_CAUSE_ML_HOST_PORT:-${ROOT_CAUSE_ML_PORT:?ROOT_CAUSE_ML_PORT is required in .env}}:${ROOT_CAUSE_ML_CONTAINER_PORT:-${ROOT_CAUSE_ML_PORT:?ROOT_CAUSE_ML_PORT is required in .env}}"
     environment:
@@ -129,7 +134,7 @@ services:
 
   anomaly-bridge:
     build: ./anomaly-detection-ml
-    container_name: gsh-anomaly-bridge
+    container_name: ${COMPOSE_PROJECT_NAME:-gsh}-anomaly-bridge
     command: ["python", "-u", "bridge.py"]
     environment:
       DB_URL: "${DB_URL:-postgresql://postgres:${POSTGRES_PASSWORD}@timescaledb:${TIMESCALE_CONTAINER_PORT:-${TIMESCALE_PORT:-5432}}/game_monitor}"
@@ -149,7 +154,7 @@ services:
   alerting-service:
     build:
       context: ./alerting-service
-    container_name: gsh-alerting-service
+    container_name: ${COMPOSE_PROJECT_NAME:-gsh}-alerting-service
     environment:
       # All values are obtained from the .env file — NO hardcoded values
       DB_URL: "${DB_URL:-postgresql://postgres:${POSTGRES_PASSWORD}@timescaledb:${TIMESCALE_CONTAINER_PORT:-${TIMESCALE_PORT:-5432}}/game_monitor}"
@@ -172,7 +177,7 @@ services:
   client:
     build:
       context: ./client
-    container_name: gsh-client
+    container_name: ${COMPOSE_PROJECT_NAME:-gsh}-client
     ports:
       - "${CLIENT_HOST_PORT:-${CLIENT_PORT:?CLIENT_PORT is required in .env}}:${CLIENT_CONTAINER_PORT:-${CLIENT_PORT:?CLIENT_PORT is required in .env}}"
     environment:

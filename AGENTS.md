@@ -70,9 +70,15 @@ feature/* ──PR──► developer ──PR──► main
               (CI must pass)   (CI must pass)
 ```
 
-- `main` — production; only merges from `developer`.
-- `developer` — integration branch; merge only when CI is green.
+- `main` — production; only merges from `developer`. A green CI run on
+  `main` deploys to production.
+- `developer` — integration branch; merge only when CI is green. A
+  green CI run on `developer` deploys to staging.
 - `feature/*` — working branches; open the PR against `developer`.
+
+Deployment is described in `docs/deployment.md`. The server-side
+setup there (`.env` files, nginx, DNS, GitHub environments) belongs to
+the owner — an agent must not perform it.
 
 Branch protection is configured in GitHub's settings, not in the repo:
 require a PR and a passing `CI passed` check on both `main` and
