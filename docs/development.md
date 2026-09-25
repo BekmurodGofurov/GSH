@@ -76,13 +76,13 @@ feature/* ──PR──► developer ──PR──► main
               (CI must pass)   (CI must pass)
                     │                 │
                     ▼                 ▼
-                 staging          production
+                   dev            production
 ```
 
 - `feature/*` — your working branch. Open the PR against `developer`.
   Name it `feature/<what>` — not `future/…`.
 - `developer` — integration branch. Merge only when CI is green. Every
-  push that passes CI **deploys to staging**.
+  push that passes CI **deploys to dev** (`https://gsh-dev.bekmurod.uz`).
 - `main` — production. Only merges from `developer`, and every push
   that passes CI **deploys to production**
   ([deployment.md](deployment.md)).
