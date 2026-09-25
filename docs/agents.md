@@ -115,8 +115,8 @@ decision, not a workaround in code.
 
 **Cost:** every question that uses a tool is two Gemini requests. On
 the free tier (20 requests per day per model) that is about **10
-questions a day**. Enable billing, or give staging its own key (see
-[deployment.md](deployment.md#staging)), before relying on it for a
+questions a day**. Enable billing, or give dev its own key (see
+[deployment.md](deployment.md#dev-environment)), before relying on it for a
 demo.
 
 ## Errors

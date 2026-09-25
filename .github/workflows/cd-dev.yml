@@ -1,15 +1,15 @@
-name: CD main
+name: CD developer
 
-# Runs after CI finishes on main; deploys only if CI is green.
+# Runs after CI finishes on developer; deploys only if CI is green.
 on:
   workflow_run:
     workflows: [CI]
     types: [completed]
-    branches: [main]
+    branches: [developer]
   workflow_dispatch:
 
 concurrency:
-  group: deploy-production
+  group: deploy-developer
   cancel-in-progress: false
 
 jobs:
@@ -21,7 +21,7 @@ jobs:
        github.event.workflow_run.event == 'push')
 
     steps:
-      - name: SSH into EC2 and update main
+      - name: SSH into EC2 and update developer
         uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ secrets.EC2_HOST }}
@@ -31,11 +31,11 @@ jobs:
           script_stop: true
           script: |
             set -e
-            cd /home/ubuntu/GSH
+            cd /home/ubuntu/projects/gsh-dev
 
-            git fetch origin main
-            git reset --hard origin/main
-            git checkout -B main origin/main
+            git fetch origin developer
+            git reset --hard origin/developer
+            git checkout -B developer origin/developer
 
             docker compose up -d --build
             docker compose stop client
@@ -43,6 +43,6 @@ jobs:
             cd client
             npm ci
             npm run build
-            sudo cp -r dist/* /var/www/gsh-frontend/
+            sudo cp -r dist/* /var/www/gsh-dev-frontend/
 
             docker image prune -f
