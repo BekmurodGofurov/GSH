@@ -1,225 +1,115 @@
-# Agent Harness, Tools, and Security
+# Agent Harness, Tools, and Safety
 
-GSH has an in-product LLM agent: the **Ask** panel in the dashboard. A
-user asks a question in plain language ("What is the average latency
-right now?"), the agent calls one of a fixed set of tools against the
-live database, and answers from what the tool returned. It can also
-perform one write action — re-labelling an incident's root cause.
+GSH includes two in-product LLM agent interfaces:
+1. The **Ask** panel in the dashboard for text-based questions and diagnostic commands.
+2. The **Voice Agent** for real-time speech-to-text (STT) and text-to-speech (TTS) interaction.
 
-Not to be confused with [AGENTS.md](../AGENTS.md): that file governs how
-an AI *coding* assistant edits this repository. This doc is about the
-agent that runs inside the product, for end users.
+Both agent interfaces operate under strict autonomy tiers, whitelist validation, and audit logging.
 
-## Where it lives
+Not to be confused with [AGENTS.md](../AGENTS.md): that file governs how an AI coding assistant edits this repository. This document covers the in-product agents that run for users.
 
-The agent is part of `gateway-api`, not a separate service.
+## Where It Lives
+
+The text agent runs inside `gateway-api`. The voice agent runs as a dedicated service in `voice-agent/`.
 
 | File | What it holds |
 |---|---|
-| `gateway-api/app/agent/router.py` | `POST /api/v1/agent/ask`, the Gemini client, the tool whitelist (`_TOOL_REGISTRY`), retry and error handling |
-| `gateway-api/app/agent/tools.py` | one async function per tool, each running fixed SQL |
-| `gateway-api/app/agent/schemas.py` | Pydantic models: the request/response of the endpoint and each tool's arguments |
-| `gateway-api/queries.py` | SQL shared by the REST API and the tools (`LATEST_SERVERS_QUERY`) |
-| `gateway-api/main.py` | mounts the router (`app.include_router(agent_module.router)`) |
-| `client/src/components/common/AskPanel.jsx` | the slide-in Ask panel and its floating button |
-| `client/src/services/api.js` | `api.askAgent(question)` |
-| `gateway-api/tests/test_agent_tools.py` | tool and endpoint tests |
+| `gateway-api/app/agent/router.py` | `POST /api/v1/agent/ask`, Gemini client, tool whitelist (`_TOOL_REGISTRY`), retry and audit logging |
+| `gateway-api/app/agent/tools.py` | Async tool implementations running parameterised SQL or internal service calls |
+| `gateway-api/app/agent/schemas.py` | Pydantic models for request/response payloads and tool arguments |
+| `gateway-api/queries.py` | Shared SQL constants used across the REST API and agent tools |
+| `voice-agent/worker.py` | LiveKit voice agent using Silero VAD and Gemini Multimodal Live API (`RealtimeModel`) |
+| `client/src/components/common/AskPanel.jsx` | Dual-mode dashboard panel supporting text chat and LiveKit voice streaming |
+| `client/src/services/api.js` | Frontend API client methods (`askAgent`, `getLivekitToken`, `pollServer`, `muteServer`, etc.) |
+| `gateway-api/tests/test_agent_tools.py` | Unit and integration tests for agent tools and endpoints |
 
-## How a question is answered
+## Autonomy Levels
 
+To guarantee safety and prevent unintended state changes, tools operate under two explicit tiers:
+
+### Level P1: Autonomous (Read & Diagnostic)
+May execute immediately without user confirmation:
+- Query server metrics and status (`get_server_summary`)
+- Query recent incidents and anomaly history (`get_recent_events`)
+- Calculate latency buckets (`get_average_latency`)
+- Trigger immediate live health checks on an external game server (`poll_server_now`)
+- Read cached daily analytics summaries (`generate_daily_report`)
+- Build ranking and latency charts in voice sessions (`get_server_performance_chart`)
+
+### Level P2: Controlled (Write & State Changes)
+Requires explanation, proposal, and explicit user confirmation before executing:
+- Temporarily silence alerts for a server (`mute_server_alerts`)
+- Mark incident events as acknowledged (`acknowledge_event`)
+- Correct or re-classify an incident root cause (`relabel_event`)
+- Trigger and deliver on-demand daily reports to Telegram (`send_daily_report`)
+
+### Explain and Propose Workflow
+When a user asks why a server is unstable or degrading:
+1. The agent inspects recent incident logs and metric trends.
+2. The agent explains the root cause diagnosis to the user.
+3. The agent proposes an appropriate remediation (for example, muting alerts for 30 minutes).
+4. The agent waits for explicit user confirmation before running any P2 tool.
+
+### Audit Trail
+Every executed P2 action emits an audit log line:
 ```
-AskPanel ──POST /api/v1/agent/ask {question}──► gateway-api
-                                                    │
-         ┌──────────────────────────────────────────┘
-         ▼
-  1. Gemini call #1: question + system instruction + tool declarations
-         │
-         ├─ no tool requested ──► answer = model text ──────────────┐
-         │                                                          │
-         ▼ function_call {name, args}                               │
-  2. name in _TOOL_REGISTRY?  no ──► 400                            │
-  3. args through the tool's Pydantic schema  invalid ──► 422       │
-  4. run the tool function against the DB pool                      │
-  5. Gemini call #2: question + tool result as JSON text,           │
-     no tools offered, "answer using only the tool data"            │
-         │                                                          │
-         ▼                                                          ▼
-  {answer, tool_used} ◄─────────────────────────────────────────────┘
+[AUDIT] Action: <ACTION> | Target: <TARGET> | Result: <RESULT> | Source: <agent>
 ```
+Audit logs are recorded in the service logger for compliance and debugging.
 
-Details worth knowing:
+## Tools Overview
 
-- **One tool per question.** Only the first `function_call` in the
-  model's reply is executed, and call #2 offers no tools. A question
-  that needs two tools gets answered from one of them (see
-  [Known gaps](#known-gaps)).
-- **The tool result goes back as text, not as a function response.**
-  Gemini rejects a replayed `functionCall` part without the
-  `thought_signature` it was issued with, and that signature is not
-  available on the parsed response. Inlining the JSON works across
-  model revisions. The comment in `router.py` explains this.
-- **No memory.** Each request is independent; there is no
-  conversation history on the server or in the panel.
-- **Temperature 0.1** on both calls, to keep answers factual.
-- The Gemini SDK is synchronous, so each call runs in
-  `asyncio.to_thread` — calling it inline would block the event loop,
-  the dashboard WebSocket included.
-
-## Tools
-
-| Tool | Kind | Arguments (validated) | What it does |
+| Tool | Autonomy | Arguments | Purpose |
 |---|---|---|---|
-| `get_server_summary` | read | none | every monitored server with its latest metric — the same `LATEST_SERVERS_QUERY` that `GET /api/v1/servers` serves |
-| `get_recent_events` | read | `limit` 1–50, default 10 (`EventQuery`) | latest rows from `server_events`: type, root cause, label source, message, anomaly score, diagnosis |
-| `get_average_latency` | read | `minutes` 1–60, default 10; optional `server_id` (`LatencyQuery`) | 1-minute buckets of average ping and players per server — the same query as `GET /api/v1/analytics/ping-buckets`, plus the optional server filter |
-| `relabel_event` | **write** | `event_id` int > 0; `root_cause` one of `SERVER_CRASH`, `HIGH_LATENCY`, `DDOS_ATTACK`, `REGIONAL_OUTAGE`, `PLAYER_DROP`, `MAINTENANCE` (`RelabelRequest`) | `UPDATE server_events SET root_cause = $1, label_source = 'manual'` — the same write as `POST /api/v1/events/{id}/label`. 404 if the event doesn't exist. The change shows up on the dashboard within one WebSocket tick (3s). |
+| `get_server_summary` | P1 | none | Returns status, ping, player count, and region for all monitored servers. |
+| `get_recent_events` | P1 | `limit` (int, 1-50, default 10) | Returns latest incident events from `server_events`. |
+| `get_average_latency` | P1 | `minutes` (int, 1-60), optional `server_id` (str) | Returns 1-minute bucketed ping and player averages. |
+| `poll_server_now` | P1 | `server_id` (str) | Queries the server immediately via `ingestion-service` bypassing the poll loop. |
+| `generate_daily_report` | P1 | none | Reads today's cached summary from `daily_reports`. |
+| `get_server_performance_chart` | P1 | none | Compiles performance rankings and publishes SVG charts in voice mode. |
+| `mute_server_alerts` | P2 | `server_id` (str), `minutes` (int, 1-10080), optional `reason` (str) | Adds a temporary mute record in `alert_silences` to suppress Telegram alerts. |
+| `acknowledge_event` | P2 | `event_id` (int > 0) | Sets `is_acknowledged = TRUE` on `server_events` to stop repeated notifications. |
+| `relabel_event` | P2 | `event_id` (int > 0), `root_cause` (enum) | Updates `root_cause` and sets `label_source = 'manual'`. |
+| `send_daily_report` | P2 | none | Builds today's daily report and sends the formatted HTML file to Telegram. |
 
-## Safety model
+## Safety Model
 
-The rule is a **whitelist, not a filter**: the model can only reach
-code paths that were built for it.
-
-- **The whitelist is enforced in code.** The model is shown only the
-  tools in `_TOOL_REGISTRY`, and a request for any other name is
-  refused with 400. A function in `tools.py` that isn't registered is
-  invisible to the model.
-- **Arguments are validated before the database is touched.** Each
-  registered tool names its Pydantic schema; a hallucinated value
-  (wrong type, out of range, unknown root cause) is a 422.
-- **The model never writes SQL.** Every tool runs a fixed,
-  parameterised query; arguments are only ever bound as `$1`, `$2`.
-  `get_average_latency` has two fixed queries (with and without the
-  server filter) rather than one built from input. No tool takes a
-  free-form query or table name.
-- **The model never sees credentials or SQL** — only the tool
-  declarations and the JSON a tool returned.
-
-The boundary itself comes from [AGENTS.md](../AGENTS.md):
-
-- **May read:** server metrics, server status, anomalies, events.
-- **May write:** test events, published to Redis Streams only.
-- **May not modify:** users, production configuration, database
-  schema, secrets.
-
-`relabel_event` is a direct database write, which that list does not
-allow — see [Known gaps](#known-gaps). A new capability that doesn't
-fit the boundary needs AGENTS.md updated first, as a deliberate
-decision, not a workaround in code.
+1. **Whitelist Only**: The LLM is supplied only registered tools. Any unrecognised function call is rejected with HTTP 400.
+2. **Schema Validation**: Arguments are strictly parsed and validated using Pydantic models before touching the database or external APIs. Invalid parameters return HTTP 422.
+3. **Parameterised SQL**: Tools execute static, parameterised queries. The LLM cannot supply raw SQL or alter query structures.
+4. **No Direct Secret Access**: The LLM context never receives database connection strings, credentials, or internal tokens.
 
 ## Configuration
 
-| Variable | Required | Meaning |
-|---|---|---|
-| `AGENT_LLM_API_KEY` | **yes** | Gemini API key ([aistudio.google.com/app/apikey](https://aistudio.google.com/app/apikey)). `router.py` raises at import without it, and `main.py` imports the router at load time, so the whole gateway refuses to start — not just the agent. `docker-compose.yml` marks it `:?` so the error shows once, up front. |
-| `AGENT_LLM_MODEL` | no | Gemini model id. Empty uses the code default, `gemini-3.6-flash`. When Google retires a model the API answers 404 naming the replacement — change this value and restart `gateway-api`, no code change needed. |
+| Variable | Service | Required | Purpose |
+|---|---|---|---|
+| `AGENT_LLM_API_KEY` | `gateway-api`, `voice-agent` | Yes | Google Gemini API key for text and voice models. |
+| `AGENT_LLM_MODEL` | `gateway-api` | No | Gemini model id. Defaults to `gemini-3.6-flash`. |
+| `LIVEKIT_URL` | `gateway-api`, `voice-agent` | Yes (for voice) | WebSocket URL for the LiveKit WebRTC server. |
+| `LIVEKIT_API_KEY` | `gateway-api`, `voice-agent` | Yes (for voice) | LiveKit server API key. |
+| `LIVEKIT_API_SECRET` | `gateway-api`, `voice-agent` | Yes (for voice) | LiveKit server API secret. |
+| `INGESTION_INTERNAL_URL` | `gateway-api`, `voice-agent` | No | Internal URL for ingestion service (default `http://ingestion-service:8001`). |
 
-**Cost:** every question that uses a tool is two Gemini requests. On
-the free tier (20 requests per day per model) that is about **10
-questions a day**. Enable billing, or give dev its own key (see
-[deployment.md](deployment.md#dev-environment)), before relying on it for a
-demo.
+## Live Voice Assistant
 
-## Errors
+The voice assistant allows hands-free voice operations using bidirectional WebRTC audio:
+* Frontend connects to LiveKit via short-lived room tokens from `GET /api/v1/agent/livekit/token`.
+* The background worker (`voice-agent/worker.py`) participates in the room with Gemini Multimodal Live API.
+* Speech is automatically converted to text, processed against the toolset, and spoken back via text-to-speech.
+* The voice agent can publish visual metric charts to the dashboard over LiveKit data channels while answering.
 
-The endpoint never lets a provider or tool exception escape as a bare
-500: those are rendered outside the CORS middleware, and the browser
-would report a misleading CORS error instead of the real cause.
+Detailed architecture and deployment steps are in [voice-agent.md](voice-agent.md).
 
-| Status | When |
-|---|---|
-| 422 | `question` empty or longer than 500 characters |
-| 503 | the database pool isn't ready yet |
-| 400 | the model asked for a tool that isn't whitelisted |
-| 422 | the model passed arguments the tool's schema rejects |
-| 404 | `relabel_event` on an event id that doesn't exist |
-| 500 | a tool raised (e.g. the database query failed) — `Tool '<name>' failed: …` |
-| 502 | the LLM provider failed — `LLM provider error for model '<id>': …`. The message names the cause (bad key, retired model, quota). |
+## Testing
 
-Provider retries: **503** (model temporarily overloaded) is retried up
-to 3 attempts with 1s and 2s backoff. **429** is *not* retried — on this
-API it usually means the quota for the period is spent, and each retry
-would only burn more of it.
-
-## Frontend
-
-`AskPanel` is mounted once in `App.jsx` and rendered into
-`document.body` through a portal (see [frontend.md](frontend.md)). It
-shows a floating button bottom-right, example prompts, a loading state,
-the answer, and **"Tool used: …"** under it so it is visible which tool
-grounded the answer. Ctrl/Cmd+Enter sends.
-
-`api.askAgent()` uses a 15s timeout instead of the usual 3.5s, since
-two LLM round trips are much slower than a database read.
-
-## Adding a tool
-
-Step by step, with the rules, in
-[skills/agent/SKILL.md](../skills/agent/SKILL.md). In short:
-
-1. An async function in `tools.py` taking `db_pool` first, running
-   fixed SQL. Shared SQL goes in `queries.py` — **never** `import main`
-   from `app/`: `main` imports the router at load time, and the cycle
-   crashes the service under `python main.py`.
-2. A Pydantic schema in `schemas.py` for its arguments.
-3. An entry in `_TOOL_REGISTRY` in `router.py`: `name`, a
-   `description` the model will read, `fn`, `schema`, and the
-   JSON-schema `parameters` shown to Gemini. Keep `parameters` and the
-   Pydantic schema in agreement — the model follows `parameters`, the
-   server enforces the schema.
-4. The three tests AGENTS.md requires — success, invalid input,
-   database failure — in `tests/test_agent_tools.py`
-   ([skills/testing/SKILL.md](../skills/testing/SKILL.md)).
-5. An example prompt in `AskPanel` if it's worth discovering.
-
-## Tests
+Run the agent tool test suite:
 
 ```bash
 cd gateway-api && pytest tests/test_agent_tools.py -v
 ```
 
-Covered: each tool's success, invalid-input and database-failure cases;
-and the endpoint end to end with Gemini mocked — a tool call answered
-from the tool result, an empty question, the database not ready, a
-provider error surfacing as 502, a 503 being retried, and a 429 not
-being retried.
-
-Not yet covered: the refusal of an unknown tool name, a 422 for bad
-model-supplied arguments through the endpoint, and anything about
-authentication (there is none yet).
-
-## Known gaps
-
-What the harness does not do yet, roughly in order of importance.
-
-1. **No authentication.** `/api/v1/agent/ask` is open, and the Ask
-   panel is shown to every visitor. `POST /api/v1/events/{id}/label`
-   requires an admin, but anyone can make the same write through the
-   agent. It also means anyone can spend the Gemini quota.
-2. **The write action breaks the AGENTS.md boundary.** AGENTS.md allows
-   writing test events to Redis Streams only; `relabel_event` updates
-   `server_events` directly. Either AGENTS.md is updated to allow it
-   (with conditions — admin only, confirmation, audit) or the tool
-   changes.
-3. **Agent labels look like human labels.** The tool sets
-   `label_source = 'manual'`, and `root-cause-ml/train.py` trains on
-   `server_events.root_cause`. A relabel made through the agent —
-   today, by anyone — becomes training data indistinguishable from an
-   admin's correction. A separate value such as `'agent'` would let
-   training filter it.
-4. **No confirmation and no audit trail.** The write runs as soon as
-   the model asks for it, and nothing records who asked or what
-   changed.
-5. **One tool per question, no memory.** "Summarize what's happening
-   on the dashboard" needs servers, events and latency, but gets one.
-   "Relabel the last DDoS event" needs `get_recent_events` then
-   `relabel_event`, so it can't be done in one question. A real loop
-   (call a tool, feed the result back, allow another, up to N steps)
-   fixes both.
-6. **Event ids aren't shown in the UI,** so a user has to ask for recent
-   events first to find the id to relabel.
-7. Small edge cases in `router.py`: a tool that has a schema but is
-   called with no arguments skips validation (so `relabel_event` with
-   no args is a 500, not a 422); a reply with no candidates or no
-   content (e.g. blocked by Gemini's safety filter) raises instead of
-   returning a clear error; and with retries, a slow provider can take
-   longer than the panel's 15s timeout.
+Tests cover:
+* Success execution for each tool.
+* Rejection of invalid inputs via Pydantic schema validation.
+* Database and network connection failure handling without service crashes.
+* End-to-end endpoint mocking for Gemini turns, tool selection, 503 transient backoff, and 429 quota exhaustion.

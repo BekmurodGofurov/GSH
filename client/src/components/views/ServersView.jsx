@@ -6,6 +6,8 @@ import {
   Wifi,
   ExternalLink,
   ArrowUpDown,
+  RefreshCw,
+  BellOff,
 } from 'lucide-react';
 import { Card, CardHeader, CardTitle, CardContent } from '../common/Card';
 import { Badge } from '../common/Badge';
@@ -17,6 +19,7 @@ import {
   getPingBadgeColor,
   formatRelativeTime,
 } from '../../utils/formatters';
+import { api } from '../../services/api';
 
 export function ServersView({
   servers = [],
@@ -37,6 +40,30 @@ export function ServersView({
   const [viewMode, setViewMode] = useState('grid'); // 'grid' | 'table'
   const [sortField, setSortField] = useState('name'); // 'name' | 'ping' | 'players' | 'status'
   const [sortOrder, setSortOrder] = useState('asc');
+  const [pollingId, setPollingId] = useState(null);
+  const [mutingId, setMutingId] = useState(null);
+  const [pollResults, setPollResults] = useState({});
+
+  const handlePoll = async (e, serverId) => {
+    e.stopPropagation();
+    if (pollingId === serverId) return;
+    setPollingId(serverId);
+    const { data, error } = await api.pollServer(serverId);
+    setPollingId(null);
+    if (!error && data) {
+      setPollResults((prev) => ({ ...prev, [serverId]: data }));
+    }
+  };
+
+  const handleMute = async (e, serverId) => {
+    e.stopPropagation();
+    if (mutingId === serverId) return;
+    const minutes = parseInt(window.prompt(`Mute alerts for ${serverId}\nDuration in minutes:`, '30'), 10);
+    if (!minutes || isNaN(minutes) || minutes < 1) return;
+    setMutingId(serverId);
+    await api.muteServer(serverId, minutes, 'Manual mute from dashboard');
+    setMutingId(null);
+  };
 
   const handleSort = (field) => {
     if (sortField === field) {
@@ -253,17 +280,44 @@ export function ServersView({
                           : formatRelativeTime(s.last_offline_at)}
                       </td>
                       <td className="p-3.5 text-right">
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            onInspectServer(s);
-                          }}
-                          className="text-cyan-600 dark:text-cyan-400 hover:text-cyan-700 dark:hover:text-cyan-300 text-xs py-1 font-medium"
-                        >
-                          Inspect <ExternalLink className="w-3 h-3 ml-1" />
-                        </Button>
+                        <div className="flex items-center justify-end gap-1.5 flex-wrap">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={(e) => handlePoll(e, s.server_id)}
+                            disabled={pollingId === s.server_id}
+                            title="Re-check server now"
+                            className="text-xs py-1 px-2 text-slate-500 dark:text-slate-400 hover:text-cyan-600 dark:hover:text-cyan-400"
+                          >
+                            <RefreshCw className={`w-3 h-3 ${pollingId === s.server_id ? 'animate-spin' : ''}`} />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={(e) => handleMute(e, s.server_id)}
+                            disabled={mutingId === s.server_id}
+                            title="Mute alerts for this server"
+                            className="text-xs py-1 px-2 text-slate-500 dark:text-slate-400 hover:text-amber-600 dark:hover:text-amber-400"
+                          >
+                            <BellOff className="w-3 h-3" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              onInspectServer(s);
+                            }}
+                            className="text-cyan-600 dark:text-cyan-400 hover:text-cyan-700 dark:hover:text-cyan-300 text-xs py-1 font-medium"
+                          >
+                            Inspect <ExternalLink className="w-3 h-3 ml-1" />
+                          </Button>
+                        </div>
+                        {pollResults[s.server_id] && (
+                          <div className="text-[10px] text-emerald-600 dark:text-emerald-400 font-mono mt-1 text-right">
+                            Live: {pollResults[s.server_id].status} / {pollResults[s.server_id].ping}ms
+                          </div>
+                        )}
                       </td>
                     </tr>
                   );

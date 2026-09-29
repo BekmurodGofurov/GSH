@@ -1,6 +1,7 @@
 import asyncio
 import json
 import os
+import logging
 from fastapi import APIRouter, HTTPException, Depends
 from fastapi.encoders import jsonable_encoder
 from google import genai
@@ -8,6 +9,8 @@ from google.genai import types as genai_types
 from google.genai import errors as genai_errors
 
 from app.agent import schemas, tools
+
+logger = logging.getLogger("gsh.gateway.agent")
 
 # Startup validation
 # Fail loudly at import time — same pattern as DB_URL in main.py.
@@ -118,6 +121,87 @@ _TOOL_REGISTRY = [
             "required": ["event_id", "root_cause"],
         },
     },
+    {
+        "name": "acknowledge_event",
+        "description": (
+            "Acknowledges an incident so the alerting service stops sending repeated "
+            "Telegram notifications about it. Use this when the user says they have seen "
+            "an alert or are investigating it."
+        ),
+        "fn": tools.acknowledge_event,
+        "schema": None,
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "event_id": {
+                    "type": "integer",
+                    "description": "The numeric ID of the incident event to acknowledge.",
+                },
+            },
+            "required": ["event_id"],
+        },
+    },
+    {
+        "name": "mute_server_alerts",
+        "description": (
+            "Temporarily silences Telegram alerts for a specific server for the given number "
+            "of minutes. Useful during planned maintenance or known outages."
+        ),
+        "fn": tools.mute_server_alerts,
+        "schema": None,
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "server_id": {
+                    "type": "string",
+                    "description": "The server ID to mute (e.g. '188.212.101.109:27015').",
+                },
+                "minutes": {
+                    "type": "integer",
+                    "description": "How many minutes to silence alerts (1–10080).",
+                },
+                "reason": {
+                    "type": "string",
+                    "description": "Optional reason for the mute (e.g. 'Scheduled maintenance').",
+                },
+            },
+            "required": ["server_id", "minutes"],
+        },
+    },
+    {
+        "name": "poll_server_now",
+        "description": (
+            "Immediately triggers a fresh health check for a specific server, bypassing "
+            "the background polling interval. Returns live ping, player count, and status."
+        ),
+        "fn": tools.poll_server_now,
+        "schema": None,
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "server_id": {
+                    "type": "string",
+                    "description": "The server ID to re-check (e.g. '188.212.101.109:27015').",
+                },
+            },
+            "required": ["server_id"],
+        },
+    },
+    {
+        "name": "generate_daily_report",
+        "description": (
+            "Returns today's cached daily summary report including uptime, anomaly counts, "
+            "and server performance. If the report hasn't been generated yet, explains how "
+            "to trigger it via Telegram."
+        ),
+        "fn": tools.generate_daily_report,
+        "schema": None,
+        "parameters": {
+            "type": "object",
+            "properties": {},
+            "required": [],
+        },
+    },
 ]
 
 # Build the genai FunctionDeclaration list once at startup.
@@ -207,10 +291,18 @@ async def agent_ask(body: schemas.AskRequest):
     db_pool = _get_db_pool()
 
     system_instruction = (
-        "You are GSH (Game Server Health) assistant. "
-        "You have access to live data from a Counter-Strike 2 server monitoring system. "
+        "You are GSH (Game Server Health) assistant monitoring Counter-Strike 2 game servers. "
         "Always use the available tools to get real data before answering. "
-        "Be concise and factual. If a tool returns no data, say so clearly."
+        "\n\nAutonomy Levels:"
+        "\n- P1 (Read / Diagnose / Live Poll): Execute immediately without waiting for confirmation: "
+        "get_server_summary, get_recent_events, get_average_latency, poll_server_now, generate_daily_report."
+        "\n- P2 (Write / State Changes): Require user confirmation before executing: "
+        "mute_server_alerts, acknowledge_event, relabel_event."
+        "\n\nExplain and Propose Workflow:"
+        "\nWhen asked 'why is server X unstable?' or about server problems, fetch recent events and metrics. "
+        "Explain the diagnosis clearly, and PROPOSE the appropriate P2 action (e.g. muting alerts for 30 minutes). "
+        "Only call P2 tools if the user explicitly commanded it or confirmed your proposal."
+        "\nBe concise and factual. If a tool returns no data, say so clearly."
     )
 
     # Turn 1: Send question to Gemini with tool list
@@ -261,11 +353,15 @@ async def agent_ask(body: schemas.AskRequest):
                     detail=f"Tool '{tool_name}' received invalid arguments from model: {e}",
                 )
         else:
-            call_args = {}
+            # No Pydantic schema — pass raw args directly (already validated by type
+            # in the FunctionDeclaration sent to Gemini).
+            call_args = raw_args
 
         # Run the actual tool function
         try:
             tool_result = await tool_fn(db_pool, **call_args)
+            if tool_name in ("mute_server_alerts", "acknowledge_event", "relabel_event"):
+                logger.info("[AUDIT] P2 Action: %s | Args: %s | Result: %s", tool_name, call_args, tool_result)
         except HTTPException:
             raise  # re-raise clean HTTP errors (e.g. 404 event not found)
         except Exception as e:

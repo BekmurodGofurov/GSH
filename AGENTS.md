@@ -42,22 +42,33 @@ has its own `requirements.txt`; the client is a Vite app (`npm run dev`
   discrete, explicitly whitelisted function the LLM can call; it must
   never act outside of these tools.
 
-## Agent Safety
+## Agent Safety & Autonomy Levels
 
-Agent may READ:
+Agent tools operate under two explicit autonomy tiers:
 
-- server metrics
-- server status
-- anomalies
-- events
+### Level P1 — Autonomous (Read & Diagnostic)
+May execute immediately without user confirmation:
+- Read server metrics, server status, latency anomalies, recent events
+- Trigger on-demand live polling (`poll_server_now`)
+- Generate performance rankings and latency charts (`get_server_performance_chart`)
+- Read daily summaries (`generate_daily_report`)
+- Publish test events to Redis Streams (never directly to PostgreSQL)
 
-Agent may WRITE:
+### Level P2 — Controlled (Write & State Changes)
+Must ask for explicit user confirmation before executing:
+- Mute/silence server alerts (`mute_server_alerts`)
+- Acknowledge incident events (`acknowledge_event`)
+- Re-label incident root causes (`relabel_event`)
+- Send on-demand daily reports to Telegram (`send_daily_report`)
 
-- test events — published to Redis Streams only, never written directly
-  to the database
+### Explain and Propose Workflow
+When diagnosing instability or incident events, the agent must explain the root cause, propose the appropriate P2 action (e.g. muting alerts for N minutes), and wait for user confirmation before executing.
+
+### Audit Trail
+Every executed P2 action must emit an audit log entry:
+`[AUDIT] Action: <ACTION> | Target: <TARGET> | Result: <RESULT> | Source: <agent>`
 
 Agent may NOT modify:
-
 - users
 - production configuration
 - database schema

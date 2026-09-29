@@ -81,6 +81,9 @@ services:
       # Optional: override the Gemini model id without a code change, for
       # when Google retires the current one. Empty keeps the default.
       AGENT_LLM_MODEL: "${AGENT_LLM_MODEL:-}"
+      LIVEKIT_URL: "${LIVEKIT_URL:-}"
+      LIVEKIT_API_KEY: "${LIVEKIT_API_KEY:-}"
+      LIVEKIT_API_SECRET: "${LIVEKIT_API_SECRET:-}"
     depends_on:
       timescaledb:
         condition: service_healthy
@@ -189,6 +192,25 @@ services:
     depends_on:
       gateway-api:
         condition: service_started
+    restart: unless-stopped
+
+  voice-agent:
+    build:
+      context: ./voice-agent
+    container_name: ${COMPOSE_PROJECT_NAME:-gsh}-voice-agent
+    environment:
+      LIVEKIT_URL: "${LIVEKIT_URL:?LIVEKIT_URL is required in .env}"
+      LIVEKIT_API_KEY: "${LIVEKIT_API_KEY:?LIVEKIT_API_KEY is required in .env}"
+      LIVEKIT_API_SECRET: "${LIVEKIT_API_SECRET:?LIVEKIT_API_SECRET is required in .env}"
+      AGENT_LLM_API_KEY: "${AGENT_LLM_API_KEY:?AGENT_LLM_API_KEY is required in .env}"
+      AGENT_LLM_MODEL: "${AGENT_LLM_MODEL:-gemini-2.0-flash-exp}"
+      INGESTION_INTERNAL_URL: "http://ingestion-service:${INGESTION_CONTAINER_PORT:-${INGESTION_PORT:-8001}}"
+    depends_on:
+      gateway-api:
+        condition: service_started
+    dns:
+      - 8.8.8.8
+      - 1.1.1.1
     restart: unless-stopped
 
 volumes:

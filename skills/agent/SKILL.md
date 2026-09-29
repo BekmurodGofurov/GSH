@@ -11,174 +11,109 @@ description: >
 # GSH Agent Harness Rules
 
 The agent harness exposes a controlled LLM interface inside the application.
-Its design principle is a **whitelist, not a filter** — the LLM can only reach
+Its design principle is a **whitelist, not a filter**: the LLM can only reach
 code paths that were built for it. These rules enforce that principle.
 
-## Where the harness lives
+## Where the Harness Lives
 
 ```
 gateway-api/
   app/
     agent/
-      tools.py    ← one function per tool
-      schemas.py  ← Pydantic models for tool inputs/outputs and the ask endpoint
-      router.py   ← POST /api/v1/agent/ask, LLM client, tool whitelist
+      tools.py    (one async function per tool)
+      schemas.py  (Pydantic models for tool inputs and endpoint payloads)
+      router.py   (POST /api/v1/agent/ask, LLM client, tool registry)
 ```
 
-The router is mounted in `gateway-api/main.py` as a standard FastAPI router.
-There is no separate service — the agent runs inside `gateway-api`.
+The router is mounted in `gateway-api/main.py`.
 
-## READ / WRITE boundary (from AGENTS.md)
+## Autonomy Tiers (from AGENTS.md)
 
-Before building any tool, check which side of this line it falls on:
+Every agent tool must explicitly belong to one of two autonomy tiers:
 
-**Agent may READ (via tools):**
-- Server metrics (`server_metrics`)
-- Server status (`monitored_servers.status`, ping, players)
-- Anomalies and events (`server_events`)
+### Level P1: Autonomous (Read & Diagnostic)
+Tools that read data or execute safe diagnostic queries without modifying server or alert states.
+May execute immediately without user confirmation:
+- Read server metrics and status (`get_server_summary`)
+- Read incident events and anomalies (`get_recent_events`)
+- Calculate latency buckets (`get_average_latency`)
+- Trigger immediate live server polls (`poll_server_now`)
+- Read cached daily reports (`generate_daily_report`)
+- Publish test events to Redis Streams only (never directly to PostgreSQL)
 
-**Agent may WRITE (via tools):**
-- Test events — published to Redis Streams only, **never a direct DB write**
+### Level P2: Controlled (Write & State Changes)
+Tools that modify server configuration, incident states, or suppress alerts.
+Must require explicit user confirmation before executing:
+- Temporarily silence server alerts (`mute_server_alerts`)
+- Acknowledge incident events (`acknowledge_event`)
+- Re-label incident root causes (`relabel_event`)
+- Send on-demand daily reports to Telegram (`send_daily_report`)
 
-The existing `relabel_event` tool is an exception that AGENTS.md does not yet
-cover: it writes `server_events` directly, with no authentication. Don't
-copy it as a pattern for new write tools, and don't add another write tool
-until the owner has decided how writes are allowed (see "Known gaps" in
-`docs/agents.md`).
+### Explain and Propose Workflow
+When diagnosing instability or incident events:
+1. Explain the root cause based on data returned by P1 tools.
+2. Propose the appropriate P2 action (e.g. muting alerts for N minutes).
+3. Wait for explicit user confirmation before calling the P2 tool.
 
-**Agent may NOT touch, under any circumstances:**
-- `users` table or any auth data
-- Production configuration or `.env` values
+### Audit Trail
+Every executed P2 action must emit an audit log entry:
+```
+[AUDIT] Action: <ACTION> | Target: <TARGET> | Result: <RESULT> | Source: <agent>
+```
+
+Agent may NEVER modify:
+- `users` table or authentication records
+- Production configuration or secrets
 - Database schema
-- Secrets (API keys, Telegram tokens, DB passwords, LLM provider keys)
 
-If a requested tool doesn't fit inside the READ/WRITE boundary above, **stop**
-and tell the user. That requires a conscious decision to update `AGENTS.md`,
-not a workaround in code.
+## How to Add a New Tool
 
-## How to add a new tool
+### 1. Write the Function in `tools.py`
 
-### 1. Write the function in `tools.py`
+Every tool is an async Python function:
+- Accept `db_pool` (asyncpg pool) as first argument for DB access, or call internal services via HTTP (`httpx`).
+- Accept strictly typed arguments matching a Pydantic schema. Never use `**kwargs` or free-form SQL strings.
+- Use pre-written parameterised SQL queries. Reuse queries in `gateway-api/queries.py`.
+- Never `import main` from `app/` (avoids circular import crashes).
+- Return a plain Python dict or list serialisable to JSON.
+- Raise `HTTPException` for client-side errors (e.g. 404 for missing IDs).
 
-Every tool is a plain async Python function. Rules:
+### 2. Add Pydantic Schemas in `schemas.py`
 
-- Accept a `db_pool` (asyncpg pool) as the first argument for DB reads, or a
-  `redis_client` for write-to-stream tools.
-- Accept only typed arguments matching a Pydantic schema — no `**kwargs`,
-  no free-form strings that get passed to SQL.
-- Use **pre-written, fixed SQL queries** — do not build query strings from
-  user input. Reuse the query constants in `gateway-api/queries.py`, and put
-  any query shared with a REST route there too. **Never `import main`** from
-  anything under `app/`: `main.py` imports the agent router at load time, so
-  that import closes a cycle that crashes the service under `python main.py`
-  (how the Dockerfile starts it). `test_entrypoint.py` guards this.
-- Return a plain Python dict or list that can be serialised to JSON.
-- Raise a clear `ValueError` or `HTTPException` for invalid input —
-  never let a raw exception propagate to the LLM context.
+Every tool with arguments requires an input schema with strict validation bounds:
 
 ```python
-# Example shape — do not build SQL from arguments
-async def get_server_summary(db_pool) -> list[dict]:
-    async with db_pool.acquire() as conn:
-        rows = await conn.fetch(LATEST_SERVERS_QUERY)   # reuse existing constant
-    return [dict(r) for r in rows]
+class MuteRequest(BaseModel):
+    server_id: str
+    minutes: int = Field(ge=1, le=10080)
+    reason: str | None = None
 ```
 
-### 2. Add Pydantic schemas in `schemas.py`
+### 3. Register the Tool in `router.py`
 
-Each tool that accepts arguments needs an input schema. Output schemas are
-optional but recommended for tools that return structured data.
+Add an entry to `_TOOL_REGISTRY`:
+- `name`: exact tool name.
+- `description`: clear functional description the model reads. For P2 tools, state in description that confirmation is required.
+- `fn`: callable in `tools.py`.
+- `schema`: Pydantic model class (or `None`).
+- `parameters`: JSON schema dictionary matching the Pydantic schema. Keep both in sync.
 
-```python
-class LatencyQuery(BaseModel):
-    minutes: int = Field(default=10, ge=1, le=60)
+If the tool is P2, verify audit logging is executed after tool execution in `router.py`.
+
+### 4. Write Three Tests (Required by AGENTS.md)
+
+Every agent tool must have:
+1. **Success test**: valid input, assert expected result.
+2. **Invalid input test**: invalid bounds or types rejected by Pydantic before DB is touched.
+3. **DB / Service failure handling**: simulated DB or connection error raises clean exception without crashing the service.
+
+Run tests:
+```bash
+cd gateway-api && pytest tests/test_agent_tools.py -v
 ```
 
-The agent uses these schemas to know what arguments to pass. Tight validation
-here is what makes "never allow raw SQL" true by construction.
+## Security Constraints
 
-### 3. Add the tool to the whitelist in `router.py`
-
-The whitelist is `_TOOL_REGISTRY` in `router.py`, a list of dicts. The LLM is
-only shown tools on this list — it cannot call anything else, and a request
-for any other name is refused with 400.
-
-```python
-_TOOL_REGISTRY = [
-    ...,
-    {
-        "name": "get_average_latency",
-        "description": "Returns average ping ... over the last N minutes. ...",  # the model reads this
-        "fn": tools.get_average_latency,
-        "schema": schemas.LatencyQuery,       # None if the tool takes no arguments
-        "parameters": {                       # JSON schema shown to Gemini
-            "type": "object",
-            "properties": {
-                "minutes": {"type": "integer", "description": "Time window in minutes (1–60). Default is 10."},
-                "server_id": {"type": "string", "description": "Optional. ..."},
-            },
-            "required": [],
-        },
-    },
-]
-```
-
-`parameters` is what the model follows; `schema` is what the server enforces.
-Keep their names, types and limits in agreement — `RelabelRequest.event_id`
-was once `str` while `parameters` said `integer`, and every relabel failed
-validation.
-
-Adding a function to `tools.py` without adding it here does nothing — the LLM
-will never know the function exists.
-
-### 4. Write three tests (required by AGENTS.md)
-
-See `skills/testing/SKILL.md` for the full testing guide. Every agent tool
-must have before it ships:
-
-1. **Success test** — valid input, assert expected output and any expected side
-   effect (e.g., Redis stream entry for write tools).
-2. **Invalid input test** — missing field, wrong type, out-of-range value.
-   Assert a validation error is returned, not a crash.
-3. **DB/service failure test** — mock the DB pool or Redis client to raise.
-   Assert the tool returns a clear structured error, not a raw exception.
-
-## The ask endpoint
-
-`POST /api/v1/agent/ask` receives:
-
-```json
-{ "question": "What is the average latency on the Warsaw server?" }
-```
-
-Returns:
-
-```json
-{
-  "answer": "The average latency on the Warsaw server over the last 10 minutes is 42.3 ms.",
-  "tool_used": "get_average_latency"
-}
-```
-
-The endpoint:
-1. Sends the question + tool descriptions to the LLM.
-2. If the LLM requests a tool call, executes the matching whitelisted function.
-3. Sends the tool result back to the LLM for a final grounded answer.
-4. Returns the answer to the client.
-
-The LLM never sees raw SQL, raw DB credentials, or anything outside the tool
-outputs it explicitly requested.
-
-## LLM API key
-
-The LLM API key is read from the `AGENT_LLM_API_KEY` environment variable at
-startup. It is listed in `.env.example` as an empty placeholder. It must never
-be committed, logged, or returned in any response. If missing at startup,
-`router.py` raises `ValueError` the same way `DB_URL` does in `main.py`.
-
-## Do not add open-ended tools
-
-A tool like `run_query(sql: str)` or `search(query: str, table: str)` is an
-injection vector — it violates the whitelist principle even if you add
-validation on top. If a legitimate use case requires a new data shape, write a
-new named function for it.
+- A tool like `run_query(sql: str)` or `execute_command(cmd: str)` is strictly prohibited.
+- The LLM context never receives credentials, raw connection strings, or internal secrets.
+- Transient model provider errors (503) are retried with backoff. Quota errors (429) are surfaced immediately as 502.
