@@ -4,6 +4,7 @@ import {
   Flame,
   AlertTriangle,
   CheckCircle2,
+  CheckCheck,
   Download,
   Search,
 } from 'lucide-react';
@@ -12,10 +13,13 @@ import { Badge } from '../common/Badge';
 import { Button } from '../common/Button';
 import { Input } from '../common/Input';
 import { formatTime, formatRelativeTime, formatEventBadge } from '../../utils/formatters';
+import { api } from '../../services/api';
 
 export function EventLogsView({ events = [], onSelectServer }) {
   const [search, setSearch] = useState('');
   const [selectedType, setSelectedType] = useState('ALL');
+  const [ackedIds, setAckedIds] = useState(new Set());
+  const [ackingId, setAckingId] = useState(null);
 
   const stats = useMemo(() => {
     const total = events.length;
@@ -51,6 +55,14 @@ export function EventLogsView({ events = [], onSelectServer }) {
     document.body.appendChild(downloadAnchor);
     downloadAnchor.click();
     downloadAnchor.remove();
+  };
+
+  const handleAck = async (eventId) => {
+    if (ackedIds.has(eventId) || ackingId === eventId) return;
+    setAckingId(eventId);
+    const { error } = await api.acknowledgeEvent(eventId);
+    setAckingId(null);
+    if (!error) setAckedIds((prev) => new Set([...prev, eventId]));
   };
 
   return (
@@ -145,6 +157,7 @@ export function EventLogsView({ events = [], onSelectServer }) {
                 <th className="p-3.5">Incident Description & ML Diagnosis</th>
                 <th className="p-3.5">Timestamp</th>
                 <th className="p-3.5 text-right">Age</th>
+                <th className="p-3.5 text-center">Ack</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60 text-slate-700 dark:text-slate-200">
@@ -197,6 +210,20 @@ export function EventLogsView({ events = [], onSelectServer }) {
                       </td>
                       <td className="p-3.5 text-right text-slate-500 dark:text-slate-400">
                         {formatRelativeTime(evt.time)}
+                      </td>
+                      <td className="p-3.5 text-center">
+                        {ackedIds.has(evt.id) || evt.is_acknowledged ? (
+                          <CheckCheck className="w-4 h-4 text-emerald-500 mx-auto" title="Acknowledged" />
+                        ) : (
+                          <button
+                            onClick={() => handleAck(evt.id)}
+                            disabled={ackingId === evt.id}
+                            title="Acknowledge this alert"
+                            className="text-xs px-2 py-0.5 rounded border border-slate-300 dark:border-slate-600 text-slate-500 dark:text-slate-400 hover:border-emerald-500 hover:text-emerald-600 dark:hover:text-emerald-400 disabled:opacity-40 transition-colors"
+                          >
+                            {ackingId === evt.id ? '...' : 'Ack'}
+                          </button>
+                        )}
                       </td>
                     </tr>
                   );

@@ -1,104 +1,113 @@
 # Gateway and Agent Endpoints
 
-The public-facing API surface lives in `gateway-api` — it's a read/
-aggregation layer over TimescaleDB plus admin CRUD, a live WebSocket
-feed and the LLM agent. Every route is defined directly in
-`gateway-api/main.py`, except the agent endpoint, which lives in its own
-router (`gateway-api/app/agent/router.py`) mounted by `main.py`.
+The public-facing API surface lives in `gateway-api`. It provides a read and aggregation layer over TimescaleDB plus admin controls, a live WebSocket feed, alert controls, on-demand operations, and LLM agent endpoints. Every route is defined directly in `gateway-api/main.py`, except the agent query endpoint which lives in `gateway-api/app/agent/router.py`.
 
-## Auth
+## Authentication
 
 `verify_api_key` guards admin-only routes. It accepts either:
-
-- an `X-API-Key` header matching `ADMIN_API_KEY` (compared with
-  `secrets.compare_digest`, optional — empty by default), or
-- a valid `admin_session` cookie, checked against an in-memory
-  `active_sessions` dict with a 24h TTL (refreshed on use). This is
-  **not persisted across restarts** — a gateway-api restart logs every
-  admin session out.
+- An `X-API-Key` header matching `ADMIN_API_KEY` (compared with `secrets.compare_digest`).
+- A valid `admin_session` cookie, verified against an in-memory `active_sessions` dict with a 24h TTL. Note: this session cache is in-memory and resets on process restart.
 
 ## Routes
 
 | Method | Path | Auth | Purpose |
 |---|---|---|---|
-| GET | `/` | — | liveness (`{status, service, version}`) |
-| GET | `/health` | — | health check |
-| POST | `/api/v1/admin/login` | — | `{username, password}` → sets `admin_session` cookie |
-| GET | `/api/v1/admin/me` | admin | verify current admin session |
-| POST | `/api/v1/admin/logout` | — | clears the session cookie |
-| POST | `/api/v1/servers` | admin | add/upsert a monitored server (`{server_id, server_name, region}`) |
-| GET | `/api/v1/servers` | — | list monitored servers joined with their latest metric |
-| GET | `/api/v1/servers/{server_id:path}/metrics` | — | historical metrics for one server (`limit` 5–300, default 30) |
-| GET | `/api/v1/events` | — | recent incident/event log (`limit` 1–200, default 50) |
-| GET | `/api/v1/analytics/ping-buckets` | — | 1-minute bucketed ping/player analytics (`minutes` 1–60, default 10) |
-| GET | `/api/v1/analytics/daily-restarts` | — | per-server OFFLINE-event count, last 24h |
-| GET | `/api/v1/analytics/daily-busy` | — | per-server avg/peak player counts, last 24h |
-| GET | `/api/v1/analytics/daily-ping` | — | per-server avg/best ping, last 24h |
-| GET | `/api/v1/insights/daily` | — | cached daily report JSON (`target_date`, required); 404 if not cached |
-| WS | `/ws/live` | — | pushes `{servers, events}` every 3s for the dashboard |
-| POST | `/api/v1/events/{event_id}/label` | admin | manually relabel an incident's root cause (active learning) |
-| PUT | `/api/v1/servers/{server_id:path}` | admin | update a monitored server |
-| DELETE | `/api/v1/servers/{server_id:path}` | admin | delete a monitored server |
-| POST | `/api/v1/agent/ask` | — ⚠️ | ask the LLM agent a question; it may call a tool, including one write (see below) |
+| GET | `/` | None | Liveness check (`{status, service, version}`) |
+| GET | `/health` | None | Health check endpoint |
+| POST | `/api/v1/admin/login` | None | Form login returning `admin_session` cookie |
+| GET | `/api/v1/admin/me` | Admin | Verify current admin session |
+| POST | `/api/v1/admin/logout` | None | Clears the session cookie |
+| POST | `/api/v1/servers` | Admin | Add or upsert a monitored server (`{server_id, server_name, region}`) |
+| GET | `/api/v1/servers` | None | List monitored servers joined with latest metric |
+| PUT | `/api/v1/servers/{server_id:path}` | Admin | Update monitored server details |
+| DELETE | `/api/v1/servers/{server_id:path}` | Admin | Delete a monitored server and its metrics |
+| GET | `/api/v1/servers/{server_id:path}/metrics` | None | Historical metrics (`limit` 5-300, default 30) |
+| GET | `/api/v1/events` | None | Recent incident event logs (`limit` 1-200, default 50) |
+| POST | `/api/v1/events/{event_id}/label` | Admin | Manually relabel an incident root cause |
+| POST | `/api/v1/events/{event_id}/acknowledge` | Admin | Acknowledge an event to stop repeated alerts |
+| POST | `/api/v1/servers/{server_id:path}/mute` | Admin | Silence Telegram alerts for N minutes (`{minutes, reason}`) |
+| POST | `/api/v1/servers/{server_id:path}/unmute` | Admin | Cancel active mute for a server immediately |
+| POST | `/api/v1/servers/{server_id:path}/poll` | Admin | Trigger immediate poll of a server via ingestion service |
+| POST | `/api/v1/reports/daily` | Admin | Fetch today's cached daily summary report |
+| GET | `/api/v1/agent/livekit/token` | None | Generate JWT room token for LiveKit voice session |
+| GET | `/api/v1/analytics/ping-buckets` | None | 1-minute bucketed ping and player counts |
+| GET | `/api/v1/analytics/daily-restarts` | None | Server restart / crash count over 24h |
+| GET | `/api/v1/analytics/daily-busy` | None | Average and peak player counts over 24h |
+| GET | `/api/v1/analytics/daily-ping` | None | Average and best ping over 24h |
+| GET | `/api/v1/insights/daily` | None | Historical daily report JSON by `target_date` |
+| WS | `/ws/live` | None | Live metric updates pushed every 3s |
+| POST | `/api/v1/agent/ask` | None | Query the LLM agent (reads and safe state changes) |
 
-Interactive docs are auto-generated by FastAPI at `/docs` on the
-gateway-api port (default `8000`).
+Interactive documentation is automatically generated by FastAPI at `/docs` on the gateway port (default `8000`).
 
-## Agent endpoint
+## Alert Controls and On-Demand Endpoints
 
-`POST /api/v1/agent/ask` is what the dashboard's Ask panel calls. The
-agent picks one whitelisted tool, runs it against the database, and
-answers from the result. How it works, the tools, the safety model and
-the configuration are in [agents.md](agents.md).
+### Acknowledge Event
+`POST /api/v1/events/{event_id}/acknowledge`
+Marks an incident event as acknowledged (`is_acknowledged = TRUE`, `acknowledged_at = NOW()`). The alerting service skips acknowledged events during scheduled anomaly sweeps.
+
+### Mute Server Alerts
+`POST /api/v1/servers/{server_id:path}/mute`
+Body:
+```json
+{
+  "minutes": 30,
+  "reason": "Scheduled maintenance"
+}
+```
+Inserts a record into `alert_silences` valid until `NOW() + minutes`. Alerting service queries active silences and suppresses Telegram notifications for this server.
+
+### Unmute Server Alerts
+`POST /api/v1/servers/{server_id:path}/unmute`
+Sets `muted_until = NOW()` for any active silences matching the server ID.
+
+### On-Demand Server Poll
+`POST /api/v1/servers/{server_id:path}/poll`
+Proxies directly to `POST http://ingestion-service:8001/api/v1/servers/{server_id}/poll`. Immediately queries the server, writes the metric to TimescaleDB, and returns live status, ping, and player count.
+
+### On-Demand Daily Report
+`POST /api/v1/reports/daily`
+Fetches today's generated daily report text, HTML content, and JSON analytics from `daily_reports`.
+
+### LiveKit Voice Token
+`GET /api/v1/agent/livekit/token`
+Generates a short-lived signed JWT for room `gsh-agent`. Grants subscription, audio publishing, and data channel permissions for the dashboard voice session.
+
+## Agent Endpoint
+
+`POST /api/v1/agent/ask` handles natural language queries and diagnostic commands. Tools are executed per the Autonomy Tiers (Level P1 autonomous, Level P2 controlled). Complete details are in [agents.md](agents.md).
 
 Request:
-
 ```json
 { "question": "What is the average latency right now?" }
 ```
 
-`question` is required, 1–500 characters.
-
 Response:
-
 ```json
 {
-  "answer": "Over the last 10 minutes Warsaw #1 averaged 42.3 ms ...",
+  "answer": "Over the last 10 minutes Warsaw #1 averaged 42.3 ms with 10 players.",
   "tool_used": "get_average_latency"
 }
 ```
 
-`tool_used` is `null` when the model answered without a tool.
-
-| Tool the agent may call | Kind | Equivalent REST route |
+| Tool Called by Agent | Autonomy | Corresponding REST Route |
 |---|---|---|
-| `get_server_summary` | read | `GET /api/v1/servers` |
-| `get_recent_events` (`limit` 1–50) | read | `GET /api/v1/events` |
-| `get_average_latency` (`minutes` 1–60, optional `server_id`) | read | `GET /api/v1/analytics/ping-buckets`, plus a server filter |
-| `relabel_event` (`event_id`, `root_cause`) | **write** | `POST /api/v1/events/{event_id}/label` |
+| `get_server_summary` | P1 | `GET /api/v1/servers` |
+| `get_recent_events` | P1 | `GET /api/v1/events` |
+| `get_average_latency` | P1 | `GET /api/v1/analytics/ping-buckets` |
+| `poll_server_now` | P1 | `POST /api/v1/servers/{server_id}/poll` |
+| `generate_daily_report` | P1 | `POST /api/v1/reports/daily` |
+| `relabel_event` | P2 | `POST /api/v1/events/{event_id}/label` |
+| `mute_server_alerts` | P2 | `POST /api/v1/servers/{server_id}/mute` |
+| `acknowledge_event` | P2 | `POST /api/v1/events/{event_id}/acknowledge` |
 
-Errors: 422 bad question or bad model-supplied arguments, 503 database
-not ready, 400 model asked for an unknown tool, 404 relabel of a
-missing event, 500 a tool failed, 502 the LLM provider failed (the
-message names the model and the cause). Full table in
-[agents.md](agents.md#errors).
+## Internal Service HTTP Endpoints
 
-⚠️ **The endpoint has no authentication.** `relabel_event` makes the
-same write as the admin-only `POST /api/v1/events/{event_id}/label`,
-so through the agent any visitor can do what that route reserves for
-admins. See [agents.md](agents.md#known-gaps).
-
-## Other services' HTTP surfaces
-
-Each backend service runs its own FastAPI app on its own port —
-`gateway-api` doesn't proxy them. Worth knowing about if you're
-debugging the pipeline directly instead of through the gateway:
-
-| Service | Port (default) | Routes |
+Backend services run independently:
+| Service | Port (default) | Endpoints |
 |---|---|---|
-| `ingestion-service` | 8001 | `GET /health`, `POST /api/v1/ingest/metric`, `POST /api/v1/ingest/event` (unused in-repo; present for external/webhook ingestion) |
+| `ingestion-service` | 8001 | `GET /health`, `POST /api/v1/ingest/metric`, `POST /api/v1/ingest/event`, `POST /api/v1/servers/{server_id}/poll` |
 | `anomaly-detection-ml` | 8002 | `GET /health`, `POST /predict/anomaly`, `DELETE /baseline/{game}/{server_id}` |
 | `root-cause-ml` | 8003 | `GET /health`, `POST /predict/root-cause`, `POST /train` |
-
-`alerting-service` exposes no HTTP port — it's a Telegram bot driven
-entirely by long-polling and an internal scheduler.
+| `voice-agent` | N/A | Worker process connected directly to LiveKit server via WebRTC |
+| `alerting-service` | N/A | Telegram bot daemon driven by long polling and APScheduler |

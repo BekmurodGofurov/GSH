@@ -3,7 +3,7 @@ import sys
 from pathlib import Path
 import asyncio
 from contextlib import asynccontextmanager
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
 # Support standalone and container imports for shared_schemas
@@ -11,7 +11,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from db import init_db, close_db, get_db_pool
 from shared_schemas.models import MetricPayload, EventPayload
-from poller import start_polling_loop, init_redis, close_redis
+from poller import start_polling_loop, init_redis, close_redis, poll_single_server
 
 poller_task = None
 
@@ -70,6 +70,20 @@ async def ingest_event(data: EventPayload):
             VALUES (NOW(), $1, $2, $3, $4);
         """, data.server_id, data.event_type, data.root_cause, data.message)
     return {"status": "event_inserted"}
+
+@app.post("/api/v1/servers/{server_id}/poll")
+async def poll_server_now(server_id: str):
+    """Immediately poll a single server and persist the fresh metric."""
+    pool = get_db_pool()
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            "SELECT server_id, server_name, region FROM monitored_servers WHERE server_id = $1;",
+            server_id,
+        )
+    if not row:
+        raise HTTPException(status_code=404, detail=f"Server '{server_id}' not found")
+    result = await poll_single_server(dict(row))
+    return result
 
 
 if __name__ == "__main__":

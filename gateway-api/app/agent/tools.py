@@ -102,3 +102,85 @@ async def relabel_event(db_pool, event_id: int, root_cause: str) -> dict:
         "label_source": "manual",
         "status": "relabelled",
     }
+
+
+async def acknowledge_event(db_pool, event_id: int) -> dict:
+    """Acknowledge an incident so repeated Telegram alerts stop firing for it."""
+    async with db_pool.acquire() as conn:
+        result = await conn.execute(
+            """
+            UPDATE server_events
+            SET is_acknowledged = TRUE,
+                acknowledged_by = 'agent',
+                acknowledged_at = NOW()
+            WHERE id = $1;
+            """,
+            event_id,
+        )
+    if result == "UPDATE 0":
+        raise HTTPException(status_code=404, detail=f"Event {event_id} not found")
+    return {"event_id": event_id, "status": "acknowledged"}
+
+
+async def mute_server_alerts(db_pool, server_id: str, minutes: int, reason: str | None = None) -> dict:
+    """Temporarily silence Telegram alerts for a server for the given number of minutes."""
+    from datetime import datetime, timezone, timedelta
+    muted_until = datetime.now(timezone.utc) + timedelta(minutes=minutes)
+    async with db_pool.acquire() as conn:
+        exists = await conn.fetchval(
+            "SELECT 1 FROM monitored_servers WHERE server_id = $1;", server_id
+        )
+        if not exists:
+            raise HTTPException(status_code=404, detail=f"Server '{server_id}' not found")
+        row = await conn.fetchrow(
+            """
+            INSERT INTO alert_silences (server_id, muted_until, muted_by, reason)
+            VALUES ($1, $2, 'agent', $3)
+            RETURNING id, muted_until;
+            """,
+            server_id,
+            muted_until,
+            reason,
+        )
+    return {
+        "server_id": server_id,
+        "muted_until": row["muted_until"].isoformat(),
+        "silence_id": row["id"],
+        "status": "muted",
+    }
+
+
+async def poll_server_now(db_pool, server_id: str) -> dict:
+    """Immediately fetch fresh metrics for a server without waiting for the polling loop."""
+    import httpx, os
+    ingestion_url = os.getenv("INGESTION_INTERNAL_URL", "http://ingestion-service:8001")
+    url = f"{ingestion_url}/api/v1/servers/{server_id}/poll"
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        try:
+            resp = await client.post(url)
+        except httpx.RequestError as exc:
+            raise HTTPException(status_code=503, detail=f"Ingestion service unreachable: {exc}")
+    if resp.status_code == 404:
+        raise HTTPException(status_code=404, detail=f"Server '{server_id}' not found")
+    return resp.json()
+
+
+async def generate_daily_report(db_pool) -> dict:
+    """Return today's daily summary report from the cache."""
+    import datetime as _dt, json as _json
+    today = _dt.date.today()
+    async with db_pool.acquire() as conn:
+        row = await conn.fetchrow(
+            "SELECT report_text, json_data FROM daily_reports WHERE report_date = $1;",
+            today,
+        )
+    if not row:
+        return {
+            "status": "not_generated",
+            "message": "Today's report has not been generated yet. Use /report in Telegram to trigger it now.",
+        }
+    return {
+        "report_date": today.isoformat(),
+        "report_text": row["report_text"],
+        "json_data": _json.loads(row["json_data"]) if row["json_data"] else None,
+    }

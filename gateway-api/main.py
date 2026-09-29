@@ -364,6 +364,157 @@ async def delete_monitored_server(server_id: str, api_key: str = Depends(verify_
     return {"status": "success", "message": f"Server {server_id} deleted successfully"}
 
 
+# ---------------------------------------------------------------------------
+# Alert controls
+# ---------------------------------------------------------------------------
+
+class MuteRequest(BaseModel):
+    minutes: int = Field(..., ge=1, le=10080, description="Duration in minutes (max 7 days)")
+    reason: str | None = None
+
+@app.post("/api/v1/events/{event_id}/acknowledge")
+async def acknowledge_event(event_id: int, api_key: str = Depends(verify_api_key), request: Request = None):
+    """Mark an incident as acknowledged so repeated alert sending stops."""
+    acked_by = request.headers.get("X-Admin-Name", "admin") if request else "admin"
+    async with get_db_pool().acquire() as conn:
+        result = await conn.execute(
+            """
+            UPDATE server_events
+            SET is_acknowledged = TRUE,
+                acknowledged_by = $1,
+                acknowledged_at = NOW()
+            WHERE id = $2;
+            """,
+            acked_by,
+            event_id,
+        )
+        if result == "UPDATE 0":
+            raise HTTPException(status_code=404, detail="Event not found")
+    return {"status": "acknowledged", "event_id": event_id}
+
+@app.post("/api/v1/servers/{server_id:path}/mute")
+async def mute_server_alerts(server_id: str, body: MuteRequest, api_key: str = Depends(verify_api_key)):
+    """Temporarily silence alerts for a server."""
+    from datetime import timedelta
+    async with get_db_pool().acquire() as conn:
+        exists = await conn.fetchval(
+            "SELECT 1 FROM monitored_servers WHERE server_id = $1;", server_id
+        )
+        if not exists:
+            raise HTTPException(status_code=404, detail="Server not found")
+        muted_until = __import__("datetime").datetime.now(__import__("datetime").timezone.utc) + timedelta(minutes=body.minutes)
+        row = await conn.fetchrow(
+            """
+            INSERT INTO alert_silences (server_id, muted_until, muted_by, reason)
+            VALUES ($1, $2, 'admin', $3)
+            RETURNING id, muted_until;
+            """,
+            server_id,
+            muted_until,
+            body.reason,
+        )
+    return {"status": "muted", "server_id": server_id, "muted_until": row["muted_until"].isoformat(), "silence_id": row["id"]}
+
+@app.post("/api/v1/servers/{server_id:path}/unmute")
+async def unmute_server_alerts(server_id: str, api_key: str = Depends(verify_api_key)):
+    """Cancel any active mute for a server."""
+    async with get_db_pool().acquire() as conn:
+        result = await conn.execute(
+            "UPDATE alert_silences SET muted_until = NOW() WHERE server_id = $1 AND muted_until > NOW();",
+            server_id,
+        )
+    if result == "UPDATE 0":
+        raise HTTPException(status_code=404, detail="No active mute found for this server")
+    return {"status": "unmuted", "server_id": server_id}
+
+# ---------------------------------------------------------------------------
+# On-demand poll (proxied to ingestion-service)
+# ---------------------------------------------------------------------------
+
+import httpx
+
+_INGESTION_URL = os.getenv("INGESTION_INTERNAL_URL", "http://ingestion-service:8001")
+
+@app.post("/api/v1/servers/{server_id:path}/poll")
+async def poll_server_now(server_id: str, api_key: str = Depends(verify_api_key)):
+    """Immediately trigger a fresh health check for a server via ingestion-service."""
+    url = f"{_INGESTION_URL}/api/v1/servers/{server_id}/poll"
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        try:
+            resp = await client.post(url)
+        except httpx.RequestError as exc:
+            raise HTTPException(status_code=503, detail=f"Ingestion service unreachable: {exc}")
+    if resp.status_code == 404:
+        raise HTTPException(status_code=404, detail="Server not found")
+    if resp.status_code != 200:
+        raise HTTPException(status_code=502, detail="Unexpected response from ingestion-service")
+    return resp.json()
+
+# ---------------------------------------------------------------------------
+# On-demand daily report
+# ---------------------------------------------------------------------------
+
+import json as _json
+
+@app.post("/api/v1/reports/daily")
+async def generate_daily_report(api_key: str = Depends(verify_api_key)):
+    """Return today's cached daily report JSON, or 404 if not yet generated."""
+    import datetime as _dt
+    today = _dt.date.today()
+    async with get_db_pool().acquire() as conn:
+        row = await conn.fetchrow(
+            "SELECT report_text, html_content, json_data FROM daily_reports WHERE report_date = $1;",
+            today,
+        )
+    if not row:
+        raise HTTPException(
+            status_code=404,
+            detail="Today's report has not been generated yet. It is created automatically at the scheduled time, or use /report in Telegram to trigger it now.",
+        )
+    return {
+        "report_date": today.isoformat(),
+        "report_text": row["report_text"],
+        "json_data": _json.loads(row["json_data"]) if row["json_data"] else None,
+    }
+
+# ---------------------------------------------------------------------------
+# LiveKit token
+# ---------------------------------------------------------------------------
+
+_LIVEKIT_API_KEY = os.getenv("LIVEKIT_API_KEY", "")
+_LIVEKIT_API_SECRET = os.getenv("LIVEKIT_API_SECRET", "")
+_LIVEKIT_URL = os.getenv("LIVEKIT_URL", "")
+
+@app.get("/api/v1/agent/livekit/token")
+async def get_livekit_token(request: Request):
+    """Return a short-lived LiveKit room access token for dashboard voice sessions."""
+    if not _LIVEKIT_API_KEY or not _LIVEKIT_API_SECRET or not _LIVEKIT_URL:
+        raise HTTPException(status_code=503, detail="LiveKit is not configured on this server.")
+    try:
+        from livekit.api import AccessToken, VideoGrants
+        from datetime import timedelta
+        import time as _time
+
+        session_token = request.cookies.get("admin_session")
+        is_admin = bool(session_token and session_token in active_sessions)
+        role_label = "Admin" if is_admin else "User"
+
+        grants = VideoGrants(room_join=True, room="gsh-agent", can_publish=True, can_subscribe=True)
+        token = (
+            AccessToken(_LIVEKIT_API_KEY, _LIVEKIT_API_SECRET)
+            .with_identity(f"{role_label.lower()}-{int(_time.time())}")
+            .with_name(f"GSH {role_label}")
+            .with_grants(grants)
+            .with_ttl(timedelta(minutes=10))
+            .to_jwt()
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Token generation failed: {exc}")
+    return {"token": token, "url": _LIVEKIT_URL}
+
+
+
+
 if __name__ == "__main__":
     import uvicorn
     port_env = os.getenv("PORT") or os.getenv("GATEWAY_CONTAINER_PORT") or os.getenv("GATEWAY_PORT")

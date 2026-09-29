@@ -167,4 +167,35 @@ export const api = {
       bypassCircuit: false,
     });
   },
+
+  async acknowledgeEvent(eventId) {
+    return fetchSafe(`/api/v1/events/${eventId}/acknowledge`, { method: 'POST' });
+  },
+
+  async muteServer(serverId, minutes, reason) {
+    const encodedId = encodeURIComponent(serverId);
+    return fetchSafe(`/api/v1/servers/${encodedId}/mute`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ minutes, reason }),
+    });
+  },
+
+  async unmuteServer(serverId) {
+    const encodedId = encodeURIComponent(serverId);
+    return fetchSafe(`/api/v1/servers/${encodedId}/unmute`, { method: 'POST' });
+  },
+
+  async pollServer(serverId) {
+    const encodedId = encodeURIComponent(serverId);
+    return fetchSafe(`/api/v1/servers/${encodedId}/poll`, { method: 'POST', timeout: 10000 });
+  },
+
+  async getDailyReport() {
+    return fetchSafe('/api/v1/reports/daily', { method: 'POST' });
+  },
+
+  async getLivekitToken() {
+    return fetchSafe('/api/v1/agent/livekit/token', { method: 'GET' });
+  },
 };

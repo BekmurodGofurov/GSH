@@ -142,9 +142,15 @@ async def poll_and_alert_new_events(bot: Bot, pool: asyncpg.Pool) -> None:
                se.root_cause, se.diagnosis, se.ping_delta, se.player_delta
         FROM server_events se
         JOIN monitored_servers ms ON ms.server_id = se.server_id
-        WHERE se.is_alerted = FALSE 
-          AND se.root_cause IS NOT NULL 
+        WHERE se.is_alerted = FALSE
+          AND se.is_acknowledged = FALSE
+          AND se.root_cause IS NOT NULL
           AND se.root_cause NOT IN ('UNKNOWN', 'NORMAL')
+          AND NOT EXISTS (
+              SELECT 1 FROM alert_silences s
+              WHERE s.server_id = se.server_id
+                AND s.muted_until > NOW()
+          )
         ORDER BY se.id ASC LIMIT 3;
     """
     try:
