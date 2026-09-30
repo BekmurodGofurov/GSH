@@ -129,7 +129,7 @@ _TOOL_REGISTRY = [
             "an alert or are investigating it."
         ),
         "fn": tools.acknowledge_event,
-        "schema": None,
+        "schema": schemas.AcknowledgeRequest,
         "parameters": {
             "type": "object",
             "properties": {
@@ -148,7 +148,7 @@ _TOOL_REGISTRY = [
             "of minutes. Useful during planned maintenance or known outages."
         ),
         "fn": tools.mute_server_alerts,
-        "schema": None,
+        "schema": schemas.MuteAlertsRequest,
         "parameters": {
             "type": "object",
             "properties": {
@@ -175,7 +175,7 @@ _TOOL_REGISTRY = [
             "the background polling interval. Returns live ping, player count, and status."
         ),
         "fn": tools.poll_server_now,
-        "schema": None,
+        "schema": schemas.PollRequest,
         "parameters": {
             "type": "object",
             "properties": {
@@ -195,7 +195,7 @@ _TOOL_REGISTRY = [
             "to trigger it via Telegram."
         ),
         "fn": tools.generate_daily_report,
-        "schema": None,
+        "schema": schemas.DailyReportRequest,
         "parameters": {
             "type": "object",
             "properties": {},
@@ -302,7 +302,8 @@ async def agent_ask(body: schemas.AskRequest):
         "\nWhen asked 'why is server X unstable?' or about server problems, fetch recent events and metrics. "
         "Explain the diagnosis clearly, and PROPOSE the appropriate P2 action (e.g. muting alerts for 30 minutes). "
         "Only call P2 tools if the user explicitly commanded it or confirmed your proposal."
-        "\nBe concise and factual. If a tool returns no data, say so clearly."
+        "\nBe concise and factual. If a tool returns no data, say so clearly. "
+        "Never speculate, guess, or invent server metrics; strictly base answers on tool outputs."
     )
 
     # Turn 1: Send question to Gemini with tool list

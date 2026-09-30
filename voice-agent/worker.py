@@ -138,14 +138,9 @@ async def get_server_performance_chart(context: RunContext[WorkerCtx]) -> str:
 
             best = ranked[0] if ranked else None
             best_name = best.get("server_name", best.get("server_id", "N/A")) if best else "N/A"
-            best_ping = round(best.get("ping_ms", 0), 1) if best else 0
-            offline_ratio = len(offline) / len(data) if data else 0
-            predicted_down = round(offline_ratio * len(data))
-
             return (
                 f"Best server is {best_name} at {best_ping}ms. "
-                f"Currently {len(offline)} of {len(data)} servers offline. "
-                f"Based on current trends, around {predicted_down} servers may experience downtime over the next 2 days."
+                f"Currently {len(offline)} of {len(data)} servers offline."
             )
         except Exception as e:
             return f"Error: {e}"

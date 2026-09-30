@@ -232,6 +232,145 @@ async def test_relabel_event_db_failure():
 
 
 # ══════════════════════════════════════════════════════
+# Tool 4: acknowledge_event
+# ══════════════════════════════════════════════════════
+
+@pytest.mark.asyncio
+async def test_acknowledge_event_success():
+    pool, conn = make_pool(execute_result="UPDATE 1")
+    result = await tools.acknowledge_event(pool, event_id=42)
+    assert result == {"event_id": 42, "status": "acknowledged"}
+    assert conn.queries[0][1] == (42,)
+
+
+def test_acknowledge_event_invalid_id():
+    with pytest.raises(ValidationError):
+        schemas.AcknowledgeRequest(event_id=0)
+    with pytest.raises(ValidationError):
+        schemas.AcknowledgeRequest(event_id=-5)
+
+
+@pytest.mark.asyncio
+async def test_acknowledge_event_not_found():
+    from fastapi import HTTPException
+    pool, _ = make_pool(execute_result="UPDATE 0")
+    with pytest.raises(HTTPException) as exc:
+        await tools.acknowledge_event(pool, event_id=999)
+    assert exc.value.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_acknowledge_event_db_failure():
+    pool, _ = make_pool(error=Exception("db failure"))
+    with pytest.raises(Exception, match="db failure"):
+        await tools.acknowledge_event(pool, event_id=1)
+
+
+# ══════════════════════════════════════════════════════
+# Tool 5: mute_server_alerts
+# ══════════════════════════════════════════════════════
+
+@pytest.mark.asyncio
+async def test_mute_server_alerts_success():
+    import datetime
+    pool = MagicMock()
+    conn = AsyncMock()
+    conn.fetchval.return_value = 1
+    conn.fetchrow.return_value = {
+        "id": 10,
+        "muted_until": datetime.datetime(2026, 1, 1, 12, 0, tzinfo=datetime.timezone.utc),
+    }
+    pool.acquire.return_value.__aenter__.return_value = conn
+
+    result = await tools.mute_server_alerts(pool, server_id="1.2.3.4:27015", minutes=30, reason="Maintenance")
+    assert result["status"] == "muted"
+    assert result["server_id"] == "1.2.3.4:27015"
+    assert result["silence_id"] == 10
+
+
+def test_mute_server_alerts_invalid_input():
+    with pytest.raises(ValidationError):
+        schemas.MuteAlertsRequest(server_id="", minutes=10)
+    with pytest.raises(ValidationError):
+        schemas.MuteAlertsRequest(server_id="1.2.3.4:27015", minutes=0)
+    with pytest.raises(ValidationError):
+        schemas.MuteAlertsRequest(server_id="1.2.3.4:27015", minutes=20000)
+
+
+@pytest.mark.asyncio
+async def test_mute_server_alerts_not_found():
+    from fastapi import HTTPException
+    pool = MagicMock()
+    conn = AsyncMock()
+    conn.fetchval.return_value = None
+    pool.acquire.return_value.__aenter__.return_value = conn
+
+    with pytest.raises(HTTPException) as exc:
+        await tools.mute_server_alerts(pool, server_id="unknown:27015", minutes=30)
+    assert exc.value.status_code == 404
+
+
+# ══════════════════════════════════════════════════════
+# Tool 6: poll_server_now
+# ══════════════════════════════════════════════════════
+
+@pytest.mark.asyncio
+async def test_poll_server_now_success():
+    fake_resp = MagicMock()
+    fake_resp.status_code = 200
+    fake_resp.json.return_value = {"server_id": "1.2.3.4:27015", "ping_ms": 25.0}
+
+    with patch("httpx.AsyncClient.post", return_value=fake_resp):
+        result = await tools.poll_server_now(None, server_id="1.2.3.4:27015")
+    assert result["ping_ms"] == 25.0
+
+
+def test_poll_server_now_invalid_input():
+    with pytest.raises(ValidationError):
+        schemas.PollRequest(server_id="")
+
+
+@pytest.mark.asyncio
+async def test_poll_server_now_service_unreachable():
+    import httpx
+    from fastapi import HTTPException
+    with patch("httpx.AsyncClient.post", side_effect=httpx.RequestError("service down")):
+        with pytest.raises(HTTPException) as exc:
+            await tools.poll_server_now(None, server_id="1.2.3.4:27015")
+    assert exc.value.status_code == 503
+
+
+# ══════════════════════════════════════════════════════
+# Tool 7: generate_daily_report
+# ══════════════════════════════════════════════════════
+
+@pytest.mark.asyncio
+async def test_generate_daily_report_cached():
+    pool = MagicMock()
+    conn = AsyncMock()
+    conn.fetchrow.return_value = {
+        "report_text": "All servers healthy",
+        "json_data": '{"uptime": 99.9}',
+    }
+    pool.acquire.return_value.__aenter__.return_value = conn
+
+    result = await tools.generate_daily_report(pool)
+    assert result["report_text"] == "All servers healthy"
+    assert result["json_data"]["uptime"] == 99.9
+
+
+@pytest.mark.asyncio
+async def test_generate_daily_report_not_generated():
+    pool = MagicMock()
+    conn = AsyncMock()
+    conn.fetchrow.return_value = None
+    pool.acquire.return_value.__aenter__.return_value = conn
+
+    result = await tools.generate_daily_report(pool)
+    assert result["status"] == "not_generated"
+
+
+# ══════════════════════════════════════════════════════
 # Endpoint: POST /api/v1/agent/ask
 # ══════════════════════════════════════════════════════
 

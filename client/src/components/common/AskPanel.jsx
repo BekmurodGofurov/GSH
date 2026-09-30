@@ -569,7 +569,7 @@ export function AskPanel({ isOpen, onOpen, onClose }) {
                     'What is the average latency right now?',
                     'Which servers are currently offline?',
                     'Show me the best performing server.',
-                    'How many servers may go down in 2 days?',
+                    'Show me recent incident events.',
                   ].map((hint) => (
                     <button
                       key={hint}
