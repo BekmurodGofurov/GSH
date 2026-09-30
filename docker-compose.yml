@@ -204,6 +204,7 @@ services:
       LIVEKIT_API_SECRET: "${LIVEKIT_API_SECRET:?LIVEKIT_API_SECRET is required in .env}"
       AGENT_LLM_API_KEY: "${AGENT_LLM_API_KEY:?AGENT_LLM_API_KEY is required in .env}"
       AGENT_LLM_MODEL: "${AGENT_LLM_MODEL:-gemini-2.0-flash-exp}"
+      GATEWAY_INTERNAL_URL: "http://gateway-api:${GATEWAY_CONTAINER_PORT:-${GATEWAY_PORT:-8000}}"
       INGESTION_INTERNAL_URL: "http://ingestion-service:${INGESTION_CONTAINER_PORT:-${INGESTION_PORT:-8001}}"
     depends_on:
       gateway-api:

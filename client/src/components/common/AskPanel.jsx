@@ -142,13 +142,19 @@ function AnimatedMicButton({ voiceState, isMicrophoneEnabled, onToggle }) {
 }
 
 // ─── Voice Tab with Real-time Streamed Transcript ────────────────────────────
-function VoiceTab({ onDisconnect }) {
-  const { state, audioTrack } = useVoiceAssistant();
+function VoiceTab({ onDisconnect, onError }) {
+  const { state, audioTrack, error: agentError } = useVoiceAssistant();
   const connectionState = useConnectionState();
   const { localParticipant, isMicrophoneEnabled } = useLocalParticipant();
   const room = useRoomContext();
   const transcriptEndRef = useRef(null);
   const inactivityTimerRef = useRef(null);
+
+  useEffect(() => {
+    if (agentError) {
+      onError?.(`Voice agent error: ${agentError?.message || agentError}. Gemini quota or live connection may be unavailable.`);
+    }
+  }, [agentError, onError]);
 
   // Unified items list: { id, role: 'user' | 'agent' | 'chart', text, final, chart, time }
   const [items, setItems] = useState([]);
@@ -539,9 +545,17 @@ export function AskPanel({ isOpen, onOpen, onClose }) {
                   connect
                   audio
                   className="flex-1 flex flex-col min-h-0"
+                  onDisconnected={() => {
+                    setLkError('Voice session disconnected. You can start a new session below.');
+                    stopVoice();
+                  }}
+                  onError={(err) => {
+                    setLkError(`Voice connection error: ${err?.message || err}. Please try reconnecting.`);
+                    stopVoice();
+                  }}
                 >
                   <RoomAudioRenderer />
-                  <VoiceTab onDisconnect={stopVoice} />
+                  <VoiceTab onDisconnect={stopVoice} onError={(msg) => setLkError(msg)} />
                 </LiveKitRoom>
               )}
               {!lkSession && !lkConnecting && !lkError && (

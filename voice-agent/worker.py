@@ -94,8 +94,11 @@ async def get_server_summary(context: RunContext[WorkerCtx]) -> str:
             if resp.status_code != 200:
                 return f"Failed to fetch servers: HTTP {resp.status_code}"
             data = resp.json()
-            online = sum(1 for s in data if s.get("status") == "ONLINE")
+            online_servers = [s for s in data if s.get("status") == "ONLINE"]
+            online = len(online_servers)
             total = len(data)
+            pings = [s["ping_ms"] for s in online_servers if s.get("ping_ms")]
+            avg_ping = round(sum(pings) / len(pings), 1) if pings else 0
 
             rows = [
                 {
@@ -106,9 +109,32 @@ async def get_server_summary(context: RunContext[WorkerCtx]) -> str:
                 for s in data[:10]
             ]
             await publish_chart(context.userdata.room, "bar", "Server Latency (ms)", rows)
-            return f"Total {total} servers. {online} currently online. Servers: {json.dumps(data[:8], ensure_ascii=False)}"
+            return (
+                f"Total {total} servers, {online} online. "
+                f"Average latency is {avg_ping}ms. "
+                f"Servers: {json.dumps(data[:8], ensure_ascii=False)}"
+            )
         except Exception as e:
             return f"Error fetching server summary: {e}"
+
+
+@function_tool(
+    description="Returns average ping latency across servers over recent minutes."
+)
+async def get_average_latency(context: RunContext[WorkerCtx], minutes: int = 10) -> str:
+    async with httpx.AsyncClient(timeout=8.0) as client:
+        try:
+            resp = await client.get(f"{GATEWAY_URL}/api/v1/analytics/ping-buckets?minutes={minutes}")
+            if resp.status_code != 200:
+                return f"Failed to fetch latency: HTTP {resp.status_code}"
+            data = resp.json()
+            if not data:
+                return "No latency metrics recorded in this time window."
+            pings = [row["avg_ping"] for row in data if row.get("avg_ping")]
+            overall_avg = round(sum(pings) / len(pings), 1) if pings else 0
+            return f"The average latency across monitored servers over the last {minutes} minutes is {overall_avg} ms."
+        except Exception as e:
+            return f"Error fetching latency metrics: {e}"
 
 
 @function_tool(
@@ -271,6 +297,7 @@ async def entrypoint(ctx: JobContext):
         vad=ctx.proc.userdata["vad"],
         tools=[
             get_server_summary,
+            get_average_latency,
             get_server_performance_chart,
             get_recent_events,
             poll_server_now,
