@@ -12,15 +12,32 @@ concurrency:
   group: deploy-developer
   cancel-in-progress: false
 
+permissions:
+  contents: read
+  statuses: write
+
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    environment:
+      name: development
     if: >-
       github.event_name == 'workflow_dispatch' ||
       (github.event.workflow_run.conclusion == 'success' &&
        github.event.workflow_run.event == 'push')
 
     steps:
+      - name: Set deployment status to pending
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TARGET_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
+        run: |
+          gh api "repos/${{ github.repository }}/statuses/${TARGET_SHA}" \
+            -f state="pending" \
+            -f context="CD / deploy-developer" \
+            -f description="Deploying to dev server..." \
+            -f target_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+
       - name: SSH into EC2 and update developer
         uses: appleboy/ssh-action@v1.0.3
         with:
@@ -46,3 +63,23 @@ jobs:
             sudo cp -r dist/* /var/www/gsh-dev-frontend/
 
             docker image prune -f
+
+      - name: Set deployment status result
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TARGET_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
+          JOB_STATUS: ${{ job.status }}
+        run: |
+          if [ "${JOB_STATUS}" = "success" ]; then
+            STATE="success"
+            DESC="Successfully deployed to dev server"
+          else
+            STATE="failure"
+            DESC="Deploy to dev server failed"
+          fi
+          gh api "repos/${{ github.repository }}/statuses/${TARGET_SHA}" \
+            -f state="${STATE}" \
+            -f context="CD / deploy-developer" \
+            -f description="${DESC}" \
+            -f target_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"

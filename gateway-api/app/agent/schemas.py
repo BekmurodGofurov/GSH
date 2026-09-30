@@ -43,3 +43,25 @@ class RelabelRequest(BaseModel):
         "PLAYER_DROP",
         "MAINTENANCE",
     ]
+
+
+class AcknowledgeRequest(BaseModel):
+    """Input for acknowledge_event."""
+    event_id: int = Field(..., gt=0)
+
+
+class MuteAlertsRequest(BaseModel):
+    """Input for mute_server_alerts."""
+    server_id: str = Field(..., min_length=1, max_length=100)
+    minutes: int = Field(..., ge=1, le=10080)
+    reason: str | None = Field(default=None, max_length=500)
+
+
+class PollRequest(BaseModel):
+    """Input for poll_server_now."""
+    server_id: str = Field(..., min_length=1, max_length=100)
+
+
+class DailyReportRequest(BaseModel):
+    """Input for generate_daily_report (no arguments required)."""
+    pass
