@@ -497,6 +497,8 @@ async def get_livekit_token(request: Request):
 
         session_token = request.cookies.get("admin_session")
         is_admin = bool(session_token and session_token in active_sessions)
+        role_label = "Admin" if is_admin else "User"
+
         import uuid as _uuid
         room_name = f"gsh-agent-{_uuid.uuid4().hex[:8]}"
         grants = VideoGrants(room_join=True, room=room_name, can_publish=True, can_subscribe=True)

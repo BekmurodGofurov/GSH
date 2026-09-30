@@ -364,3 +364,64 @@ async def test_a_database_error_does_not_leak_a_stack_trace(monkeypatch, client)
         # ASGITransport re-raises unhandled errors instead of returning a 500,
         # which is what proves the failure is not being swallowed silently.
         await client.get("/api/v1/servers")
+
+
+# --- livekit token endpoint -----------------------------------------------
+
+async def test_get_livekit_token_unconfigured_returns_503(monkeypatch, client):
+    import main
+    monkeypatch.setattr(main, "_LIVEKIT_API_KEY", "")
+    monkeypatch.setattr(main, "_LIVEKIT_API_SECRET", "")
+    monkeypatch.setattr(main, "_LIVEKIT_URL", "")
+
+    response = await client.get("/api/v1/agent/livekit/token")
+    assert response.status_code == 503
+    assert "LiveKit is not configured" in response.json()["detail"]
+
+
+async def test_get_livekit_token_success_for_regular_user(monkeypatch, client):
+    import main
+    monkeypatch.setattr(main, "_LIVEKIT_API_KEY", "test-api-key")
+    monkeypatch.setattr(main, "_LIVEKIT_API_SECRET", "test-api-secret-123456789012345678901234567890")
+    monkeypatch.setattr(main, "_LIVEKIT_URL", "wss://livekit.example.com")
+
+    response = await client.get("/api/v1/agent/livekit/token")
+    assert response.status_code == 200
+    data = response.json()
+    assert "token" in data
+    assert data["url"] == "wss://livekit.example.com"
+    assert "room" in data
+    assert data["room"].startswith("gsh-agent-")
+
+
+async def test_get_livekit_token_success_for_admin(monkeypatch, client):
+    import main
+    monkeypatch.setattr(main, "_LIVEKIT_API_KEY", "test-api-key")
+    monkeypatch.setattr(main, "_LIVEKIT_API_SECRET", "test-api-secret-123456789012345678901234567890")
+    monkeypatch.setattr(main, "_LIVEKIT_URL", "wss://livekit.example.com")
+
+    await client.post(
+        "/api/v1/admin/login",
+        json={"username": ADMIN_USERNAME, "password": ADMIN_PASSWORD},
+    )
+
+    response = await client.get("/api/v1/agent/livekit/token")
+    assert response.status_code == 200
+    data = response.json()
+    assert "token" in data
+    assert data["room"].startswith("gsh-agent-")
+
+
+async def test_get_livekit_token_generates_isolated_rooms(monkeypatch, client):
+    import main
+    monkeypatch.setattr(main, "_LIVEKIT_API_KEY", "test-api-key")
+    monkeypatch.setattr(main, "_LIVEKIT_API_SECRET", "test-api-secret-123456789012345678901234567890")
+    monkeypatch.setattr(main, "_LIVEKIT_URL", "wss://livekit.example.com")
+
+    resp1 = await client.get("/api/v1/agent/livekit/token")
+    resp2 = await client.get("/api/v1/agent/livekit/token")
+    assert resp1.status_code == 200
+    assert resp2.status_code == 200
+    room1 = resp1.json()["room"]
+    room2 = resp2.json()["room"]
+    assert room1 != room2, "Each session must receive a unique room for isolation"
