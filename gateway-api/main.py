@@ -497,9 +497,9 @@ async def get_livekit_token(request: Request):
 
         session_token = request.cookies.get("admin_session")
         is_admin = bool(session_token and session_token in active_sessions)
-        role_label = "Admin" if is_admin else "User"
-
-        grants = VideoGrants(room_join=True, room="gsh-agent", can_publish=True, can_subscribe=True)
+        import uuid as _uuid
+        room_name = f"gsh-agent-{_uuid.uuid4().hex[:8]}"
+        grants = VideoGrants(room_join=True, room=room_name, can_publish=True, can_subscribe=True)
         token = (
             AccessToken(_LIVEKIT_API_KEY, _LIVEKIT_API_SECRET)
             .with_identity(f"{role_label.lower()}-{int(_time.time())}")
@@ -510,7 +510,7 @@ async def get_livekit_token(request: Request):
         )
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Token generation failed: {exc}")
-    return {"token": token, "url": _LIVEKIT_URL}
+    return {"token": token, "url": _LIVEKIT_URL, "room": room_name}
 
 
 
