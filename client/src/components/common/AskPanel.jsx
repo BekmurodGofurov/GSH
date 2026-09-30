@@ -1,6 +1,20 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { createPortal } from 'react-dom';
-import { X, Bot, Send, Loader2, Wrench, AlertTriangle, Mic, MicOff, MessageSquare } from 'lucide-react';
+import {
+  X,
+  Bot,
+  Send,
+  Loader2,
+  Wrench,
+  AlertTriangle,
+  Mic,
+  MicOff,
+  MessageSquare,
+  RotateCcw,
+  AlertCircle,
+  Clock,
+  Sparkles,
+} from 'lucide-react';
 import { api } from '../../services/api';
 import '@livekit/components-styles';
 import {
@@ -18,6 +32,435 @@ import { ConnectionState, RoomEvent } from 'livekit-client';
 
 const MAX_INPUT_HEIGHT = 180;
 const INACTIVITY_TIMEOUT_S = 60;
+
+const SUGGESTED_QUERIES = [
+  'What is the average latency right now?',
+  'Which servers are currently offline?',
+  'Show me the best performing server.',
+  'Show me recent incident events.',
+];
+
+function formatEventTime(timeStr) {
+  if (!timeStr) return '';
+  try {
+    const d = new Date(timeStr);
+    if (isNaN(d.getTime())) return timeStr;
+    const hours = String(d.getUTCHours()).padStart(2, '0');
+    const mins = String(d.getUTCMinutes()).padStart(2, '0');
+    const secs = String(d.getUTCSeconds()).padStart(2, '0');
+    return `${hours}:${mins}:${secs} UTC`;
+  } catch {
+    return timeStr;
+  }
+}
+
+function getEventTypeBadge(type) {
+  const t = (type || '').toUpperCase();
+  if (t.includes('CRASH') || t.includes('DOWN') || t.includes('OFFLINE')) {
+    return {
+      className: 'bg-rose-950/80 text-rose-300 border-rose-800/80',
+      label: type,
+    };
+  }
+  if (t.includes('PING') || t.includes('LATENCY')) {
+    return {
+      className: 'bg-amber-950/80 text-amber-300 border-amber-800/80',
+      label: type,
+    };
+  }
+  if (t.includes('RECOVERY') || t.includes('ONLINE')) {
+    return {
+      className: 'bg-emerald-950/80 text-emerald-300 border-emerald-800/80',
+      label: type,
+    };
+  }
+  return {
+    className: 'bg-cyan-950/80 text-cyan-300 border-cyan-800/80',
+    label: type,
+  };
+}
+
+function getRootCauseBadge(cause) {
+  const c = (cause || '').toUpperCase();
+  if (c.includes('REGIONAL') || c.includes('OUTAGE')) {
+    return 'bg-purple-950/80 text-purple-300 border-purple-800/80';
+  }
+  if (c.includes('DDOS') || c.includes('ATTACK')) {
+    return 'bg-rose-950/80 text-rose-300 border-rose-800/80';
+  }
+  if (c.includes('PLAYER') || c.includes('DROP')) {
+    return 'bg-blue-950/80 text-blue-300 border-blue-800/80';
+  }
+  if (c.includes('MAINTENANCE')) {
+    return 'bg-sky-950/80 text-sky-300 border-sky-800/80';
+  }
+  return 'bg-slate-800 text-slate-300 border-slate-700/80';
+}
+
+function EventCard({ event }) {
+  const typeBadge = getEventTypeBadge(event.eventType);
+  const causeClass = getRootCauseBadge(event.rootCause);
+  const timeFormatted = formatEventTime(event.time);
+
+  return (
+    <div className="rounded-xl border border-slate-800/90 bg-slate-900/90 p-3 space-y-2 hover:border-slate-700 transition-colors shadow-sm">
+      <div className="flex items-center justify-between gap-2 flex-wrap">
+        <div className="flex items-center gap-2">
+          <span className="font-mono font-bold text-cyan-400 text-xs">#{event.id}</span>
+          {event.serverId && (
+            <span className="font-mono text-[11px] text-slate-300 bg-slate-800 px-2 py-0.5 rounded border border-slate-700/60">
+              {event.serverId}
+            </span>
+          )}
+        </div>
+        {event.eventType && (
+          <span className={`px-2 py-0.5 rounded-full text-[10px] font-mono font-bold tracking-wider uppercase border ${typeBadge.className}`}>
+            {typeBadge.label}
+          </span>
+        )}
+      </div>
+
+      <div className="flex items-center gap-2 text-[10px] font-mono text-slate-400 flex-wrap">
+        {event.rootCause && (
+          <span className={`px-1.5 py-0.5 rounded border font-sans font-medium ${causeClass}`}>
+            {event.rootCause}
+          </span>
+        )}
+        {timeFormatted && (
+          <span className="flex items-center gap-1 text-slate-400">
+            <Clock className="w-3 h-3 text-slate-500" />
+            {timeFormatted}
+          </span>
+        )}
+      </div>
+
+      {event.message && (
+        <p className="text-xs text-slate-300 leading-relaxed font-sans border-t border-slate-800/60 pt-1.5 mt-1">
+          {event.message}
+        </p>
+      )}
+    </div>
+  );
+}
+
+function renderInline(text) {
+  if (!text) return null;
+  const parts = [];
+  const regex = /(\*\*.*?\*\*|\*.*?\*|`.*?`)/g;
+  let lastIndex = 0;
+  let match;
+  let key = 0;
+  while ((match = regex.exec(text)) !== null) {
+    if (match.index > lastIndex) {
+      parts.push(<span key={key++}>{text.slice(lastIndex, match.index)}</span>);
+    }
+    const raw = match[0];
+    if (raw.startsWith('**') && raw.endsWith('**')) {
+      parts.push(
+        <strong key={key++} className="font-semibold text-slate-100">
+          {raw.slice(2, -2)}
+        </strong>
+      );
+    } else if (raw.startsWith('`') && raw.endsWith('`')) {
+      parts.push(
+        <code
+          key={key++}
+          className="px-1.5 py-0.5 rounded bg-slate-800 text-cyan-300 font-mono text-[11px] border border-slate-700/60"
+        >
+          {raw.slice(1, -1)}
+        </code>
+      );
+    } else if (raw.startsWith('*') && raw.endsWith('*')) {
+      parts.push(
+        <em key={key++} className="italic text-slate-200">
+          {raw.slice(1, -1)}
+        </em>
+      );
+    }
+    lastIndex = regex.lastIndex;
+  }
+  if (lastIndex < text.length) {
+    parts.push(<span key={key++}>{text.slice(lastIndex)}</span>);
+  }
+  return parts;
+}
+
+function parseMarkdownBlocks(text) {
+  if (!text) return [];
+  const lines = text.split('\n');
+  const blocks = [];
+  let currentList = null;
+  let currentTable = null;
+  let inCodeBlock = false;
+  let codeLang = '';
+  let codeLines = [];
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+
+    if (line.trim().startsWith('```')) {
+      if (inCodeBlock) {
+        blocks.push({
+          type: 'code',
+          lang: codeLang,
+          content: codeLines.join('\n'),
+        });
+        inCodeBlock = false;
+        codeLines = [];
+        codeLang = '';
+      } else {
+        if (currentList) {
+          blocks.push(currentList);
+          currentList = null;
+        }
+        if (currentTable) {
+          blocks.push(currentTable);
+          currentTable = null;
+        }
+        inCodeBlock = true;
+        codeLang = line.trim().slice(3).trim();
+      }
+      continue;
+    }
+
+    if (inCodeBlock) {
+      codeLines.push(line);
+      continue;
+    }
+
+    const trimmed = line.trim();
+
+    // Table detection
+    if (trimmed.startsWith('|') && trimmed.endsWith('|')) {
+      if (!currentTable) {
+        if (currentList) {
+          blocks.push(currentList);
+          currentList = null;
+        }
+        currentTable = { type: 'table', rows: [] };
+      }
+      const isSep = trimmed.split('|').slice(1, -1).every((c) => c.trim().match(/^-+$/));
+      if (!isSep) {
+        const cells = trimmed.split('|').slice(1, -1).map((c) => c.trim());
+        currentTable.rows.push(cells);
+      }
+      continue;
+    } else if (currentTable) {
+      blocks.push(currentTable);
+      currentTable = null;
+    }
+
+    if (!trimmed) {
+      if (currentList) {
+        blocks.push(currentList);
+        currentList = null;
+      }
+      continue;
+    }
+
+    if (trimmed.startsWith('### ')) {
+      if (currentList) {
+        blocks.push(currentList);
+        currentList = null;
+      }
+      blocks.push({ type: 'h3', content: trimmed.slice(4) });
+      continue;
+    }
+    if (trimmed.startsWith('## ')) {
+      if (currentList) {
+        blocks.push(currentList);
+        currentList = null;
+      }
+      blocks.push({ type: 'h2', content: trimmed.slice(3) });
+      continue;
+    }
+    if (trimmed.startsWith('# ')) {
+      if (currentList) {
+        blocks.push(currentList);
+        currentList = null;
+      }
+      blocks.push({ type: 'h1', content: trimmed.slice(2) });
+      continue;
+    }
+
+    const bulletMatch = line.match(/^(\s*)[*•-]\s+(.*)$/);
+    if (bulletMatch) {
+      const indent = bulletMatch[1].length;
+      const content = bulletMatch[2];
+      if (!currentList || currentList.type !== 'ul') {
+        if (currentList) blocks.push(currentList);
+        currentList = { type: 'ul', items: [] };
+      }
+      currentList.items.push({ indent, content });
+      continue;
+    }
+
+    const numMatch = line.match(/^(\s*)\d+\.\s+(.*)$/);
+    if (numMatch) {
+      const indent = numMatch[1].length;
+      const content = numMatch[2];
+      if (!currentList || currentList.type !== 'ol') {
+        if (currentList) blocks.push(currentList);
+        currentList = { type: 'ol', items: [] };
+      }
+      currentList.items.push({ indent, content });
+      continue;
+    }
+
+    if (currentList) {
+      blocks.push(currentList);
+      currentList = null;
+    }
+    blocks.push({ type: 'p', content: line });
+  }
+
+  if (inCodeBlock) {
+    blocks.push({ type: 'code', lang: codeLang, content: codeLines.join('\n') });
+  }
+  if (currentList) {
+    blocks.push(currentList);
+  }
+  if (currentTable) {
+    blocks.push(currentTable);
+  }
+
+  return blocks;
+}
+
+function parseEventMarkdown(content) {
+  if (!content || !content.includes('**Event ID:**')) return null;
+  const firstEventIndex = content.search(/[*•-]?\s*\*\*Event ID:\*\*/);
+  if (firstEventIndex < 0) return null;
+  const prefix = content.slice(0, firstEventIndex).trim();
+
+  const eventRegex = /[*•-]?\s*\*\*Event ID:\*\*\s*(\d+)[\s\S]*?(?=(?:[*•-]?\s*\*\*Event ID:\*\*|\n\n[^\s*•-]|$))/g;
+  const events = [];
+  let match;
+  let lastIndex = firstEventIndex;
+  while ((match = eventRegex.exec(content)) !== null) {
+    const block = match[0];
+    const id = match[1];
+    const timeMatch = block.match(/\*\*Time:\*\*\s*([^\n]+)/);
+    const serverMatch = block.match(/\*\*Server ID:\*\*\s*([^\n]+)/);
+    const typeMatch = block.match(/\*\*Event Type:\*\*\s*([^\n]+)/);
+    const causeMatch = block.match(/\*\*Root Cause:\*\*\s*([^\n]+)/);
+    const msgMatch = block.match(/\*\*Message:\*\*\s*([^\n]+)/);
+    events.push({
+      id,
+      time: timeMatch ? timeMatch[1].trim() : '',
+      serverId: serverMatch ? serverMatch[1].trim() : '',
+      eventType: typeMatch ? typeMatch[1].trim() : '',
+      rootCause: causeMatch ? causeMatch[1].trim() : '',
+      message: msgMatch ? msgMatch[1].trim() : '',
+    });
+    lastIndex = eventRegex.lastIndex;
+  }
+  const suffix = content.slice(lastIndex).trim();
+  return { prefix, events, suffix };
+}
+
+function GeneralMarkdown({ content }) {
+  const blocks = parseMarkdownBlocks(content);
+  return (
+    <div className="space-y-2 text-xs leading-relaxed text-slate-200">
+      {blocks.map((block, idx) => {
+        if (block.type === 'h1' || block.type === 'h2' || block.type === 'h3') {
+          return (
+            <h4 key={idx} className="text-xs font-bold text-cyan-300 mt-2 mb-1 tracking-wide uppercase">
+              {renderInline(block.content)}
+            </h4>
+          );
+        }
+        if (block.type === 'ul') {
+          return (
+            <ul key={idx} className="space-y-1.5 my-1.5">
+              {block.items.map((item, itemIdx) => (
+                <li key={itemIdx} className={`flex items-start gap-2 ${item.indent > 0 ? 'ml-3' : ''}`}>
+                  <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 mt-1.5 shrink-0" />
+                  <span className="leading-relaxed">{renderInline(item.content)}</span>
+                </li>
+              ))}
+            </ul>
+          );
+        }
+        if (block.type === 'ol') {
+          return (
+            <ol key={idx} className="space-y-1.5 my-1.5 list-decimal list-inside text-slate-200">
+              {block.items.map((item, itemIdx) => (
+                <li key={itemIdx} className="leading-relaxed">
+                  {renderInline(item.content)}
+                </li>
+              ))}
+            </ol>
+          );
+        }
+        if (block.type === 'code') {
+          return (
+            <pre key={idx} className="p-3 rounded-xl bg-slate-950 border border-slate-800 text-[11px] font-mono text-cyan-300 overflow-x-auto my-2">
+              <code>{block.content}</code>
+            </pre>
+          );
+        }
+        if (block.type === 'table') {
+          return (
+            <div key={idx} className="overflow-x-auto my-2 rounded-xl border border-slate-800 bg-slate-900/60">
+              <table className="w-full text-[11px] text-left">
+                <tbody>
+                  {block.rows.map((row, rIdx) => (
+                    <tr
+                      key={rIdx}
+                      className={
+                        rIdx === 0
+                          ? 'bg-slate-800/80 font-semibold text-cyan-300 border-b border-slate-700/60'
+                          : 'border-b border-slate-800/40 last:border-none'
+                      }
+                    >
+                      {row.map((cell, cIdx) => (
+                        <td key={cIdx} className="px-3 py-1.5">
+                          {renderInline(cell)}
+                        </td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          );
+        }
+        return (
+          <p key={idx} className="leading-relaxed">
+            {renderInline(block.content)}
+          </p>
+        );
+      })}
+    </div>
+  );
+}
+
+function MarkdownContent({ content }) {
+  if (!content) return null;
+  const eventData = parseEventMarkdown(content);
+  if (eventData && eventData.events.length > 0) {
+    return (
+      <div className="space-y-2.5">
+        {eventData.prefix && <GeneralMarkdown content={eventData.prefix} />}
+        <div className="flex items-center justify-between text-[11px] font-mono text-cyan-400 mt-2 mb-1.5 px-0.5">
+          <span className="flex items-center gap-1.5 font-bold">
+            <AlertCircle className="w-3.5 h-3.5 text-amber-400" />
+            Recent Incidents ({eventData.events.length})
+          </span>
+        </div>
+        <div className="space-y-2">
+          {eventData.events.map((ev) => (
+            <EventCard key={ev.id} event={ev} />
+          ))}
+        </div>
+        {eventData.suffix && <GeneralMarkdown content={eventData.suffix} />}
+      </div>
+    );
+  }
+  return <GeneralMarkdown content={content} />;
+}
 
 // ─── Inline bar chart (pure SVG, no external dependencies) ───────────────────
 function BarChart({ title, rows }) {
@@ -365,14 +808,201 @@ function VoiceTab({ onDisconnect, onError }) {
   );
 }
 
+// ─── Text Chat Tab ───────────────────────────────────────────────────────────
+function TextTab({ messages, isLoading, error, onSendQuery, onClearMessages }) {
+  const [input, setInput] = useState('');
+  const textareaRef = useRef(null);
+  const messagesEndRef = useRef(null);
+
+  const resizeInput = useCallback(() => {
+    const el = textareaRef.current;
+    if (!el) return;
+    el.style.height = 'auto';
+    const needed = el.scrollHeight;
+    el.style.height = `${Math.min(needed, MAX_INPUT_HEIGHT)}px`;
+    el.style.overflowY = needed > MAX_INPUT_HEIGHT ? 'auto' : 'hidden';
+  }, []);
+
+  useEffect(resizeInput, [input, resizeInput]);
+
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages, isLoading]);
+
+  const handleSubmit = (e) => {
+    e?.preventDefault();
+    if (!input.trim() || isLoading) return;
+    const text = input;
+    setInput('');
+    onSendQuery(text);
+  };
+
+  const handleKeyDown = (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      handleSubmit(e);
+    }
+  };
+
+  return (
+    <div className="flex-1 flex flex-col overflow-hidden bg-[#080e1a]">
+      {/* Messages area */}
+      <div className="flex-1 overflow-y-auto mx-4 my-3 rounded-2xl border border-slate-800/60 bg-slate-900/40 p-3.5 space-y-3 min-h-0">
+        {messages.length === 0 ? (
+          <div className="flex flex-col items-center justify-center h-full gap-4 py-8 text-center">
+            <div className="w-12 h-12 rounded-2xl bg-cyan-950/60 border border-cyan-800/40 flex items-center justify-center shadow-lg shadow-cyan-950/50">
+              <Bot className="w-6 h-6 text-cyan-400" />
+            </div>
+            <div className="max-w-[320px]">
+              <h3 className="text-sm font-semibold text-slate-100 mb-1">GSH AI Assistant</h3>
+              <p className="text-xs text-slate-400 leading-relaxed">
+                Ask about server health, average latency, online status, or recent anomaly events.
+              </p>
+            </div>
+            <div className="w-full max-w-[440px] space-y-2 pt-2">
+              <p className="text-[10px] font-mono uppercase tracking-wider text-slate-500 font-bold text-left px-1">
+                Try asking:
+              </p>
+              {SUGGESTED_QUERIES.map((hint) => (
+                <button
+                  key={hint}
+                  type="button"
+                  onClick={() => onSendQuery(hint)}
+                  className="w-full text-left text-xs px-3.5 py-2.5 rounded-xl bg-slate-900/90 border border-slate-800/90 text-slate-300 hover:border-cyan-500/60 hover:text-cyan-200 hover:bg-slate-800/80 transition-all flex items-center justify-between group cursor-pointer shadow-sm"
+                >
+                  <span>{hint}</span>
+                  <span className="text-[10px] font-mono text-cyan-500 opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1">
+                    Send <Send className="w-3 h-3" />
+                  </span>
+                </button>
+              ))}
+            </div>
+          </div>
+        ) : (
+          <>
+            {messages.map((msg) => {
+              const isUser = msg.role === 'user';
+              if (isUser) {
+                return (
+                  <div key={msg.id} className="flex justify-end">
+                    <div className="max-w-[85%] px-3.5 py-2.5 text-xs leading-relaxed bg-slate-800/90 text-slate-100 border border-slate-700/60 rounded-2xl rounded-br-sm shadow-sm">
+                      <span className="block text-[10px] font-bold text-slate-400 mb-1">You</span>
+                      <p className="whitespace-pre-wrap">{msg.text}</p>
+                    </div>
+                  </div>
+                );
+              }
+              return (
+                <div key={msg.id} className="flex justify-start">
+                  <div
+                    className={`max-w-[92%] px-4 py-3 text-xs leading-relaxed rounded-2xl rounded-bl-sm shadow-md border ${
+                      msg.isError
+                        ? 'bg-rose-950/40 text-rose-200 border-rose-800/60'
+                        : 'bg-gradient-to-br from-cyan-950/40 via-slate-900/90 to-slate-950 text-slate-200 border-cyan-800/40'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between gap-2 mb-2 pb-1.5 border-b border-cyan-900/30">
+                      <div className="flex items-center gap-1.5">
+                        <Bot className={`w-3.5 h-3.5 ${msg.isError ? 'text-rose-400' : 'text-cyan-400'}`} />
+                        <span className={`text-[10px] font-bold tracking-wider uppercase ${msg.isError ? 'text-rose-400' : 'text-cyan-400'}`}>
+                          GSH Agent
+                        </span>
+                      </div>
+                      {msg.tool_used && (
+                        <span className="inline-flex items-center gap-1 text-[10px] font-mono px-2 py-0.5 rounded-full bg-cyan-950/90 text-cyan-300 border border-cyan-800/60">
+                          <Wrench className="w-3 h-3 text-cyan-400" />
+                          {msg.tool_used}
+                        </span>
+                      )}
+                    </div>
+                    {msg.isError ? (
+                      <p className="text-rose-300 font-mono text-[11px]">{msg.text}</p>
+                    ) : (
+                      <MarkdownContent content={msg.text} />
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+
+            {isLoading && (
+              <div className="flex justify-start">
+                <div className="px-4 py-2.5 rounded-2xl rounded-bl-sm bg-gradient-to-br from-cyan-950/30 via-slate-900/80 to-slate-950 border border-cyan-800/30 flex items-center gap-2.5 text-xs text-cyan-300 shadow-sm">
+                  <Loader2 className="w-3.5 h-3.5 animate-spin text-cyan-400" />
+                  <span className="font-mono text-[11px]">Analyzing telemetry & generating answer…</span>
+                </div>
+              </div>
+            )}
+          </>
+        )}
+        <div ref={messagesEndRef} />
+      </div>
+
+      {/* Suggested Quick Chips when chat is active */}
+      {messages.length > 0 && (
+        <div className="shrink-0 flex items-center gap-2 overflow-x-auto pb-1 scrollbar-none px-4 text-xs">
+          {SUGGESTED_QUERIES.map((hint) => (
+            <button
+              key={hint}
+              type="button"
+              onClick={() => onSendQuery(hint)}
+              disabled={isLoading}
+              className="shrink-0 text-[11px] px-3 py-1 rounded-full bg-slate-900/80 border border-slate-800 text-slate-400 hover:text-cyan-300 hover:border-cyan-800/60 transition-colors cursor-pointer disabled:opacity-50"
+            >
+              {hint}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {/* Input bar */}
+      <form onSubmit={handleSubmit} className="shrink-0 p-3 sm:p-4 border-t border-slate-800/80 bg-slate-950/80 backdrop-blur-md">
+        <div className="flex flex-col gap-2">
+          <div className="relative flex items-center">
+            <textarea
+              ref={textareaRef}
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={handleKeyDown}
+              placeholder="Ask about servers, latency, recent incidents… (Enter to send)"
+              rows={1}
+              disabled={isLoading}
+              className="w-full resize-none rounded-xl border border-slate-800 bg-slate-900/90 text-slate-100 text-xs sm:text-sm px-3.5 py-2.5 pr-20 placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-cyan-500/60 focus:border-cyan-500/80 disabled:opacity-50 transition-colors"
+            />
+            <button
+              type="submit"
+              disabled={isLoading || !input.trim()}
+              className="absolute right-2 bottom-2 px-3 py-1.5 rounded-lg bg-cyan-600 hover:bg-cyan-500 active:scale-95 disabled:bg-slate-800 disabled:text-slate-600 text-white text-xs font-semibold flex items-center gap-1.5 shadow-md shadow-cyan-950/50 transition-all cursor-pointer"
+            >
+              {isLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />}
+              <span>Send</span>
+            </button>
+          </div>
+          <div className="flex items-center justify-between text-[10px] text-slate-500 font-mono px-1">
+            <span>Enter to send • Shift+Enter for new line</span>
+            {messages.length > 0 && (
+              <button
+                type="button"
+                onClick={onClearMessages}
+                className="flex items-center gap-1 text-slate-400 hover:text-rose-400 transition-colors cursor-pointer"
+              >
+                <RotateCcw className="w-3 h-3" />
+                Clear chat
+              </button>
+            )}
+          </div>
+        </div>
+      </form>
+    </div>
+  );
+}
+
 // ─── Main Panel Container ────────────────────────────────────────────────────
 export function AskPanel({ isOpen, onOpen, onClose }) {
-  const [question, setQuestion] = useState('');
-  const [isLoading, setIsLoading] = useState(false);
-  const [response, setResponse] = useState(null);
-  const [error, setError] = useState(null);
-  const textareaRef = useRef(null);
   const [mode, setMode] = useState('text');
+  const [messages, setMessages] = useState([]);
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState(null);
   const [lkSession, setLkSession] = useState(null);
   const [lkConnecting, setLkConnecting] = useState(false);
   const [lkError, setLkError] = useState(null);
@@ -406,23 +1036,6 @@ export function AskPanel({ isOpen, onOpen, onClose }) {
     onClose();
   }, [onClose, stopVoice]);
 
-  const resizeInput = useCallback(() => {
-    const el = textareaRef.current;
-    if (!el) return;
-    el.style.height = 'auto';
-    const needed = el.scrollHeight;
-    el.style.height = `${Math.min(needed, MAX_INPUT_HEIGHT)}px`;
-    el.style.overflowY = needed > MAX_INPUT_HEIGHT ? 'auto' : 'hidden';
-  }, []);
-
-  useEffect(resizeInput, [question, resizeInput]);
-
-  useEffect(() => {
-    if (isOpen && textareaRef.current) {
-      setTimeout(() => textareaRef.current?.focus(), 300);
-    }
-  }, [isOpen]);
-
   useEffect(() => {
     if (!isOpen) return;
     const handler = (e) => {
@@ -432,25 +1045,42 @@ export function AskPanel({ isOpen, onOpen, onClose }) {
     return () => window.removeEventListener('keydown', handler);
   }, [isOpen, handleClose]);
 
-  async function handleSubmit(e) {
-    e.preventDefault();
-    const q = question.trim();
+  const handleSendQuery = async (queryText) => {
+    const q = queryText?.trim();
     if (!q || isLoading) return;
-    setIsLoading(true);
-    setResponse(null);
     setError(null);
+    const userMsg = {
+      id: `u_${Date.now()}`,
+      role: 'user',
+      text: q,
+      time: Date.now(),
+    };
+    setMessages((prev) => [...prev, userMsg]);
+    setIsLoading(true);
+
     const { data, error: err } = await api.askAgent(q);
     setIsLoading(false);
     if (err) {
       setError(err);
-    } else {
-      setResponse(data);
+      const errorMsg = {
+        id: `err_${Date.now()}`,
+        role: 'agent',
+        text: `Error: ${err}`,
+        isError: true,
+        time: Date.now(),
+      };
+      setMessages((prev) => [...prev, errorMsg]);
+    } else if (data) {
+      const agentMsg = {
+        id: `a_${Date.now()}`,
+        role: 'agent',
+        text: data.answer,
+        tool_used: data.tool_used,
+        time: Date.now(),
+      };
+      setMessages((prev) => [...prev, agentMsg]);
     }
-  }
-
-  function handleKeyDown(e) {
-    if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') handleSubmit(e);
-  }
+  };
 
   return createPortal(
     <>
@@ -469,46 +1099,48 @@ export function AskPanel({ isOpen, onOpen, onClose }) {
       <div
         onClick={handleClose}
         aria-hidden={!isOpen}
-        className={`fixed inset-0 z-40 bg-slate-950/30 dark:bg-slate-950/50 backdrop-blur-[2px] transition-opacity duration-300 ease-in-out ${
+        className={`fixed inset-0 z-40 bg-slate-950/50 backdrop-blur-[2px] transition-opacity duration-300 ease-in-out ${
           isOpen ? 'opacity-100' : 'opacity-0 pointer-events-none'
         }`}
       />
 
       <div
-        className={`fixed inset-y-0 right-0 z-50 w-full sm:w-[560px] lg:w-[680px] xl:w-[760px] bg-white dark:bg-slate-950 border-l border-slate-200 dark:border-slate-800 shadow-2xl transform transition-transform duration-300 ease-in-out flex flex-col ${
+        className={`fixed inset-y-0 right-0 z-50 w-full sm:w-[560px] lg:w-[680px] xl:w-[760px] bg-[#080e1a] border-l border-slate-800 shadow-2xl transform transition-transform duration-300 ease-in-out flex flex-col text-slate-100 ${
           isOpen ? 'translate-x-0' : 'translate-x-full'
         }`}
       >
-        <div className="flex items-center justify-between p-4 border-b border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/50 shrink-0">
-          <div className="flex items-center gap-2 text-slate-900 dark:text-slate-100 font-bold">
-            <Bot className="w-5 h-5 text-cyan-600 dark:text-cyan-400" />
+        <div className="flex items-center justify-between p-4 border-b border-slate-800/80 bg-slate-900/60 backdrop-blur-md shrink-0">
+          <div className="flex items-center gap-2 text-slate-100 font-bold">
+            <Bot className="w-5 h-5 text-cyan-400" />
             Ask GSH
-            <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-cyan-50 dark:bg-cyan-950/80 text-cyan-700 dark:text-cyan-400 border border-cyan-200 dark:border-cyan-800/50 uppercase font-bold">
+            <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-cyan-950/80 text-cyan-400 border border-cyan-800/50 uppercase font-bold">
               AGENT
             </span>
           </div>
           <div className="flex items-center gap-2">
-            <div className="flex rounded-lg border border-slate-200 dark:border-slate-700 overflow-hidden text-xs font-medium">
+            <div className="flex rounded-lg border border-slate-800 bg-slate-900/80 p-0.5 text-xs font-medium">
               <button
+                type="button"
                 onClick={() => setMode('text')}
-                className={`px-3 py-1.5 flex items-center gap-1.5 transition-colors ${
+                className={`px-3 py-1.5 rounded-md flex items-center gap-1.5 transition-colors cursor-pointer ${
                   mode === 'text'
-                    ? 'bg-cyan-600 text-white'
-                    : 'text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'
+                    ? 'bg-cyan-600 text-white shadow-sm'
+                    : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/60'
                 }`}
               >
                 <MessageSquare className="w-3.5 h-3.5" />
                 Text
               </button>
               <button
+                type="button"
                 onClick={() => {
                   setMode('voice');
                   if (!lkSession) startVoice();
                 }}
-                className={`px-3 py-1.5 flex items-center gap-1.5 transition-colors ${
+                className={`px-3 py-1.5 rounded-md flex items-center gap-1.5 transition-colors cursor-pointer ${
                   mode === 'voice'
-                    ? 'bg-cyan-600 text-white'
-                    : 'text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'
+                    ? 'bg-cyan-600 text-white shadow-sm'
+                    : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/60'
                 }`}
               >
                 <Mic className="w-3.5 h-3.5" />
@@ -516,8 +1148,9 @@ export function AskPanel({ isOpen, onOpen, onClose }) {
               </button>
             </div>
             <button
+              type="button"
               onClick={handleClose}
-              className="p-1.5 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 rounded-md hover:bg-slate-200 dark:hover:bg-slate-800 transition-colors"
+              className="p-1.5 text-slate-400 hover:text-slate-200 rounded-md hover:bg-slate-800 transition-colors cursor-pointer"
             >
               <X className="w-5 h-5" />
             </button>
@@ -525,16 +1158,16 @@ export function AskPanel({ isOpen, onOpen, onClose }) {
         </div>
 
         <div className="flex-1 overflow-hidden flex flex-col min-h-0">
-          {mode === 'voice' && (
+          {mode === 'voice' ? (
             <div className="flex-1 flex flex-col min-h-0">
               {lkError && (
-                <div className="m-4 p-3 rounded-xl bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800 text-xs text-rose-600 dark:text-rose-400">
+                <div className="m-4 p-3 rounded-xl bg-rose-950/40 border border-rose-800 text-xs text-rose-300">
                   {lkError}
                 </div>
               )}
               {lkConnecting && !lkSession && (
-                <div className="flex-1 flex flex-col items-center justify-center gap-3 text-slate-500 dark:text-slate-400">
-                  <Loader2 className="w-8 h-8 animate-spin text-cyan-500" />
+                <div className="flex-1 flex flex-col items-center justify-center gap-3 text-slate-400">
+                  <Loader2 className="w-8 h-8 animate-spin text-cyan-400" />
                   <p className="text-sm">Connecting to voice session…</p>
                 </div>
               )}
@@ -561,8 +1194,9 @@ export function AskPanel({ isOpen, onOpen, onClose }) {
               {!lkSession && !lkConnecting && !lkError && (
                 <div className="flex-1 flex flex-col items-center justify-center gap-4">
                   <button
+                    type="button"
                     onClick={startVoice}
-                    className="flex items-center gap-2 px-6 py-3 rounded-full bg-cyan-600 hover:bg-cyan-700 text-white font-semibold shadow-lg transition-colors"
+                    className="flex items-center gap-2 px-6 py-3 rounded-full bg-cyan-600 hover:bg-cyan-500 text-white font-semibold shadow-lg shadow-cyan-950/50 transition-colors cursor-pointer"
                   >
                     <Mic className="w-5 h-5" />
                     Start voice session
@@ -570,111 +1204,16 @@ export function AskPanel({ isOpen, onOpen, onClose }) {
                 </div>
               )}
             </div>
-          )}
-
-          {mode === 'text' && (
-            <div className="flex-1 overflow-y-auto p-4 space-y-4">
-              {!response && !error && !isLoading && (
-                <div className="space-y-2">
-                  <p className="text-xs text-slate-500 dark:text-slate-400 font-medium uppercase tracking-wider">
-                    Try asking:
-                  </p>
-                  {[
-                    'What is the average latency right now?',
-                    'Which servers are currently offline?',
-                    'Show me the best performing server.',
-                    'Show me recent incident events.',
-                  ].map((hint) => (
-                    <button
-                      key={hint}
-                      onClick={() => setQuestion(hint)}
-                      className="w-full text-left text-xs px-3 py-2 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-300 hover:border-cyan-400 dark:hover:border-cyan-600 hover:text-cyan-700 dark:hover:text-cyan-300 transition-colors"
-                    >
-                      {hint}
-                    </button>
-                  ))}
-                </div>
-              )}
-
-              {isLoading && (
-                <div className="flex flex-col items-center justify-center py-12 text-slate-500 dark:text-slate-400 gap-3">
-                  <Loader2 className="w-8 h-8 animate-spin text-cyan-500" />
-                  <p className="text-sm">Agent is thinking…</p>
-                </div>
-              )}
-
-              {error && !isLoading && (
-                <div className="flex items-start gap-3 p-4 rounded-xl bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800">
-                  <AlertTriangle className="w-5 h-5 text-rose-500 shrink-0 mt-0.5" />
-                  <div>
-                    <p className="text-sm font-semibold text-rose-700 dark:text-rose-400">Something went wrong</p>
-                    <p className="text-xs text-rose-600 dark:text-rose-400 mt-1">{error}</p>
-                  </div>
-                </div>
-              )}
-
-              {response && !isLoading && (
-                <div className="space-y-3">
-                  {response.tool_used && (
-                    <div className="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400 font-mono">
-                      <Wrench className="w-3.5 h-3.5 text-cyan-500" />
-                      <span>
-                        Tool:{' '}
-                        <span className="text-cyan-600 dark:text-cyan-400 font-semibold">{response.tool_used}</span>
-                      </span>
-                    </div>
-                  )}
-                  <div className="p-4 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm">
-                    <p className="text-[15px] text-slate-800 dark:text-slate-200 leading-7 whitespace-pre-wrap">
-                      {response.answer}
-                    </p>
-                  </div>
-                  <button
-                    onClick={() => {
-                      setResponse(null);
-                      setError(null);
-                      setQuestion('');
-                    }}
-                    className="text-xs text-cyan-600 dark:text-cyan-400 hover:text-cyan-700 dark:hover:text-cyan-300 transition-colors"
-                  >
-                    Ask another question
-                  </button>
-                </div>
-              )}
-            </div>
+          ) : (
+            <TextTab
+              messages={messages}
+              isLoading={isLoading}
+              error={error}
+              onSendQuery={handleSendQuery}
+              onClearMessages={() => setMessages([])}
+            />
           )}
         </div>
-
-        {mode === 'text' && (
-          <form
-            onSubmit={handleSubmit}
-            className="shrink-0 p-4 border-t border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950"
-          >
-            <div className="flex flex-col gap-2">
-              <textarea
-                ref={textareaRef}
-                value={question}
-                onChange={(e) => setQuestion(e.target.value)}
-                onKeyDown={handleKeyDown}
-                placeholder="Ask about server health, latency, events…"
-                rows={1}
-                disabled={isLoading}
-                className="w-full resize-none overflow-hidden rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-slate-100 text-sm px-3 py-2.5 placeholder:text-slate-400 dark:placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-cyan-500/50 focus:border-cyan-400 dark:focus:border-cyan-600 disabled:opacity-50 transition-colors"
-              />
-              <div className="flex items-center justify-between">
-                <span className="text-[10px] text-slate-400 font-mono">Ctrl+Enter to send</span>
-                <button
-                  type="submit"
-                  disabled={isLoading || !question.trim()}
-                  className="flex items-center gap-2 px-4 py-2 rounded-lg bg-cyan-600 hover:bg-cyan-700 disabled:bg-slate-300 dark:disabled:bg-slate-700 text-white disabled:text-slate-500 text-xs font-semibold transition-colors"
-                >
-                  {isLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />}
-                  Send
-                </button>
-              </div>
-            </div>
-          </form>
-        )}
       </div>
     </>,
     document.body
