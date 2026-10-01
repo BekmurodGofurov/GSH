@@ -22,6 +22,10 @@ if (!window.matchMedia) {
   });
 }
 
+if (!Element.prototype.scrollIntoView) {
+  Element.prototype.scrollIntoView = () => {};
+}
+
 if (!global.ResizeObserver) {
   global.ResizeObserver = class {
     observe() {}
