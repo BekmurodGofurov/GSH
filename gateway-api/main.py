@@ -1,5 +1,6 @@
 import os
 import sys
+import logging
 from pathlib import Path
 import asyncio
 import asyncpg
@@ -7,6 +8,18 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, Query, WebSocket, WebSocketDisconnect, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.encoders import jsonable_encoder
+
+# Logging has to be configured before the agent router is imported, and
+# the service has to configure it at all: uvicorn sets up its own loggers
+# and leaves the root logger without a handler, so every logger.info()
+# in this service was being dropped. That included the [AUDIT] line for
+# P2 actions, which AGENTS.md requires -- muting a server left no trace
+# anywhere outside the database row it wrote. Matches the pattern in
+# voice-agent/worker.py so both halves of the agent log the same way.
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+)
 
 # Agent harness router — mounted at /api/v1/agent/ask
 # Import is deferred here; the module validates AGENT_LLM_API_KEY at load time.
@@ -485,13 +498,23 @@ _LIVEKIT_API_KEY = os.getenv("LIVEKIT_API_KEY", "")
 _LIVEKIT_API_SECRET = os.getenv("LIVEKIT_API_SECRET", "")
 _LIVEKIT_URL = os.getenv("LIVEKIT_URL", "")
 
+# Which worker is allowed to answer this stack's voice rooms.
+#
+# Without a name, every worker registered against the LiveKit project takes
+# rooms from a shared pool -- so a dev stack, or a laptop left running
+# `docker compose up`, could pick up a production call and answer it in a
+# different voice with a different build of the prompt. The room asks for
+# this exact agent by name, and the worker registers under it, so only the
+# matching worker is dispatched. Dev and prod must not share the value.
+_VOICE_AGENT_NAME = os.getenv("VOICE_AGENT_NAME", "gsh-voice")
+
 @app.get("/api/v1/agent/livekit/token")
 async def get_livekit_token(request: Request):
     """Return a short-lived LiveKit room access token for dashboard voice sessions."""
     if not _LIVEKIT_API_KEY or not _LIVEKIT_API_SECRET or not _LIVEKIT_URL:
         raise HTTPException(status_code=503, detail="LiveKit is not configured on this server.")
     try:
-        from livekit.api import AccessToken, VideoGrants
+        from livekit.api import AccessToken, VideoGrants, RoomAgentDispatch, RoomConfiguration
         from datetime import timedelta
         import time as _time
 
@@ -506,13 +529,26 @@ async def get_livekit_token(request: Request):
             AccessToken(_LIVEKIT_API_KEY, _LIVEKIT_API_SECRET)
             .with_identity(f"{role_label.lower()}-{int(_time.time())}")
             .with_name(f"GSH {role_label}")
+            # Who is in the room, decided here and signed into the token.
+            #
+            # The voice worker holds a service-wide admin key, so without
+            # this it would run a P2 action for whoever happened to be
+            # speaking. The browser cannot forge this: it is inside the
+            # JWT the server signs, and the worker reads it off the
+            # participant rather than trusting anything said out loud.
+            .with_attributes({"gsh_role": "admin" if is_admin else "viewer"})
             .with_grants(grants)
+            .with_room_config(
+                RoomConfiguration(
+                    agents=[RoomAgentDispatch(agent_name=_VOICE_AGENT_NAME)],
+                )
+            )
             .with_ttl(timedelta(minutes=10))
             .to_jwt()
         )
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Token generation failed: {exc}")
-    return {"token": token, "url": _LIVEKIT_URL, "room": room_name}
+    return {"token": token, "url": _LIVEKIT_URL, "room": room_name, "agent": _VOICE_AGENT_NAME}
 
 
 

@@ -2,7 +2,7 @@ import asyncio
 import json
 import os
 import logging
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException, Depends, Query, Request
 from fastapi.encoders import jsonable_encoder
 from google import genai
 from google.genai import types as genai_types
@@ -37,10 +37,55 @@ _MODEL = os.environ.get("AGENT_LLM_MODEL") or "gemini-3.6-flash"
 
 _TOOL_REGISTRY = [
     {
+        "name": "get_fleet_overview",
+        "description": (
+            "Returns fleet-wide totals in a single row: how many servers are "
+            "monitored, how many are online or offline, how many players are "
+            "connected right now across all of them, and the average ping. "
+            "Use this for every counting question ('how many servers are "
+            "online?', 'how many players are playing right now?') instead of "
+            "listing servers and adding them up."
+        ),
+        "fn": tools.get_fleet_overview,
+        "schema": None,
+        "parameters": {
+            "type": "object",
+            "properties": {},
+            "required": [],
+        },
+    },
+    {
+        "name": "get_server_ranking",
+        "description": (
+            "Ranks servers over a time window by stability first (crashes, "
+            "uptime, ping jitter) and then average ping, and explains why the "
+            "top one wins. Use this for 'which server is best / fastest / most "
+            "stable', for comparing servers, and whenever the user wants a "
+            "chart of server performance. Do NOT answer 'best server' from "
+            "get_server_summary: that only holds one momentary ping sample per "
+            "server, which changes between sweeps."
+        ),
+        "fn": tools.get_server_ranking,
+        "schema": schemas.RankingQuery,
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "hours": {
+                    "type": "integer",
+                    "description": "Window to judge the servers over, in hours (1–24). Default is 1.",
+                }
+            },
+            "required": [],
+        },
+    },
+    {
         "name": "get_server_summary",
         "description": (
-            "Returns the current status of every monitored CS2 game server, "
-            "including online/offline status, ping in ms, player count, and region."
+            "Returns one row per monitored CS2 server with its current "
+            "online/offline status, latest ping, player count, and region. "
+            "Use it when the user asks about specific servers or wants the "
+            "list itself -- not for fleet totals (use get_fleet_overview) and "
+            "not for picking the best server (use get_server_ranking)."
         ),
         "fn": tools.get_server_summary,
         "schema": None,  # no input arguments
@@ -268,6 +313,86 @@ async def _generate(**kwargs):
             await asyncio.sleep(_RETRY_BACKOFF_SECONDS * (2 ** attempt))
 
 
+# The behaviour rules below are mirrored in voice-agent/worker.py, which
+# runs the same agent over the voice channel. Keep the two in step: the
+# whole point of routing both through the same gateway tools is that a
+# question gets the same answer whether it was typed or spoken.
+_SYSTEM_INSTRUCTION = (
+    "You are GSH (Game Server Health) assistant monitoring Counter-Strike 2 game servers. "
+    "Always use the available tools to get real data before answering. "
+    "\n\nPicking a tool:"
+    "\n- Counting questions ('how many servers are online?', 'how many players are "
+    "playing right now?') -> get_fleet_overview. Report its totals verbatim; never "
+    "add up a server list yourself."
+    "\n- 'Which server is best / fastest / most stable?', comparing servers, or any "
+    "request for a performance chart -> get_server_ranking."
+    "\n- Questions about particular servers or the list itself -> get_server_summary."
+    "\n\nAnswering about the best server:"
+    "\nThe ranking tool sorts on stability first (crashes, uptime, ping jitter) and then "
+    "average ping, so the best server is not always the one with the lowest ping. Name the "
+    "winner and give the reasons the tool returned -- how many times it dropped out, how "
+    "steady its ping is -- and say so explicitly when it wins despite a higher ping."
+    "\n\nAutonomy Levels:"
+    "\n- P1 (Read / Diagnose / Live Poll): Execute immediately without waiting for confirmation: "
+    "get_fleet_overview, get_server_ranking, get_server_summary, get_recent_events, "
+    "get_average_latency, poll_server_now, generate_daily_report."
+    "\n- P2 (Write / State Changes): Require user confirmation before executing: "
+    "mute_server_alerts, acknowledge_event, relabel_event."
+    "\n\nExplain and Propose Workflow:"
+    "\nWhen asked 'why is server X unstable?' or about server problems, fetch recent events and metrics. "
+    "Explain the diagnosis clearly, and PROPOSE the appropriate P2 action (e.g. muting alerts for 30 minutes). "
+    "Only call P2 tools if the user explicitly commanded it or confirmed your proposal."
+    "\nP2 tools additionally require an admin login, which the server enforces. If one is "
+    "refused for that reason, say the action needs an admin sign-in -- never report it as done."
+    "\n\nBe concise and factual. If a tool returns no data, say so clearly. If a tool "
+    "returns an error, say the data is unavailable -- never fill the gap from an earlier "
+    "answer or from numbers you saw before. "
+    "Never speculate, guess, or invent server metrics; strictly base answers on tool outputs."
+)
+
+# How many bars an inline chart carries. Past ten the labels collide and
+# the chart stops being readable in the panel.
+_CHART_MAX_ROWS = 10
+
+
+def _build_chart(tool_name: str, tool_result) -> schemas.ChartPayload | None:
+    """Build the inline chart for a tool result, or None when none belongs.
+
+    Only the ranking tool produces one. Charts used to be attached to
+    every server lookup, so asking "how many servers are online?" drew a
+    ten-bar latency chart above a one-line answer. A chart now appears
+    only where the question was itself a comparison.
+    """
+    if tool_name != "get_server_ranking" or not isinstance(tool_result, dict):
+        return None
+
+    ranked = tool_result.get("ranked") or []
+    if not ranked:
+        return None
+
+    rows = []
+    for row in ranked[:_CHART_MAX_ROWS]:
+        crashes = row.get("crash_count") or 0
+        rows.append(
+            schemas.ChartRow(
+                label=row.get("server_name") or row.get("server_id", ""),
+                value=row.get("avg_ping") or 0.0,
+                status="ONLINE",
+                # The bar is average ping; the crash count is what the
+                # ranking actually turned on, so it travels with the bar.
+                note=f"{crashes} crash(es)" if crashes else None,
+            )
+        )
+
+    hours = tool_result.get("window_hours", 1)
+    window = f"{hours}h" if hours != 1 else "1h"
+    return schemas.ChartPayload(
+        title=f"Average ping over {window} — best first",
+        unit="ms",
+        rows=rows,
+    )
+
+
 def _get_db_pool():
     """Import the live db_pool from main at request time (not at module load time)."""
     import main as gw
@@ -276,8 +401,66 @@ def _get_db_pool():
     return gw.db_pool
 
 
+# The tools that change state. Asking the model nicely is not what keeps
+# these safe -- a user who says "yes, do it" gets past the prompt every
+# time. The check below is what actually holds.
+_P2_TOOLS = frozenset({"mute_server_alerts", "acknowledge_event", "relabel_event"})
+
+
+async def _require_admin(request, tool_name: str) -> None:
+    """Refuse a P2 tool unless this request carries an admin credential.
+
+    POST /agent/ask is open, because asking what the servers are doing
+    should not need a login. Muting an alert is a different thing, and it
+    used to run on the same open endpoint: the typed channel wrote
+    straight to the database while the spoken one went through an
+    authenticated endpoint, so the same sentence was refused by voice and
+    carried out by text.
+
+    main.verify_api_key is reused rather than reimplemented so there is
+    one definition of "admin" -- it covers both the X-API-Key header and
+    the dashboard's session cookie, including expiry.
+    """
+    import main as gw
+
+    try:
+        await gw.verify_api_key(request, request.headers.get("X-API-Key"))
+    except HTTPException:
+        logger.warning(
+            "[AUDIT] Action: %s | Target: - | Result: DENIED (not an admin) | Source: agent",
+            tool_name.upper(),
+        )
+        raise HTTPException(
+            status_code=403,
+            detail=(
+                f"'{tool_name}' changes server state, so it needs an admin login. "
+                "Sign in on the admin page and ask again."
+            ),
+        )
+
+
+# Read-only views of the agent's own data tools.
+#
+# The voice agent runs in its own service and so cannot import these
+# functions (AGENTS.md: services talk over HTTP, never by importing each
+# other). It used to carry its own copy of the logic, which is how the
+# spoken answer came to report a different player count from the typed
+# one. Both channels now read the same numbers through these endpoints.
+
+@router.get("/api/v1/agent/tools/fleet-overview")
+async def fleet_overview():
+    """Fleet-wide totals: servers, online/offline, players, average ping."""
+    return await tools.get_fleet_overview(_get_db_pool())
+
+
+@router.get("/api/v1/agent/tools/server-ranking")
+async def server_ranking(hours: int = Query(1, ge=1, le=24)):
+    """Servers ranked by stability then latency, with the reasons behind it."""
+    return await tools.get_server_ranking(_get_db_pool(), hours=hours)
+
+
 @router.post("/api/v1/agent/ask", response_model=schemas.AskResponse)
-async def agent_ask(body: schemas.AskRequest):
+async def agent_ask(body: schemas.AskRequest, request: Request):
     """
     Ask the agent a question about live server data, or ask it to perform
     a safe action (like re-labelling an incident).
@@ -290,21 +473,7 @@ async def agent_ask(body: schemas.AskRequest):
     """
     db_pool = _get_db_pool()
 
-    system_instruction = (
-        "You are GSH (Game Server Health) assistant monitoring Counter-Strike 2 game servers. "
-        "Always use the available tools to get real data before answering. "
-        "\n\nAutonomy Levels:"
-        "\n- P1 (Read / Diagnose / Live Poll): Execute immediately without waiting for confirmation: "
-        "get_server_summary, get_recent_events, get_average_latency, poll_server_now, generate_daily_report."
-        "\n- P2 (Write / State Changes): Require user confirmation before executing: "
-        "mute_server_alerts, acknowledge_event, relabel_event."
-        "\n\nExplain and Propose Workflow:"
-        "\nWhen asked 'why is server X unstable?' or about server problems, fetch recent events and metrics. "
-        "Explain the diagnosis clearly, and PROPOSE the appropriate P2 action (e.g. muting alerts for 30 minutes). "
-        "Only call P2 tools if the user explicitly commanded it or confirmed your proposal."
-        "\nBe concise and factual. If a tool returns no data, say so clearly. "
-        "Never speculate, guess, or invent server metrics; strictly base answers on tool outputs."
-    )
+    system_instruction = _SYSTEM_INSTRUCTION
 
     # Turn 1: Send question to Gemini with tool list
     response = await _generate(
@@ -318,6 +487,7 @@ async def agent_ask(body: schemas.AskRequest):
 
     # Check if Gemini wants to call a tool
     tool_used = None
+    chart = None
     candidate = response.candidates[0]
     function_call = None
 
@@ -337,6 +507,12 @@ async def agent_ask(body: schemas.AskRequest):
                 status_code=400,
                 detail=f"Model requested unknown tool: '{tool_name}'. This is not allowed.",
             )
+
+        # P2 tools change state, so the caller has to be an admin. This
+        # runs before the arguments are even validated: an unauthorised
+        # request should not reach the database at all.
+        if tool_name in _P2_TOOLS:
+            await _require_admin(request, tool_name)
 
         tool_entry = _TOOL_BY_NAME[tool_name]
         tool_fn = tool_entry["fn"]
@@ -361,14 +537,22 @@ async def agent_ask(body: schemas.AskRequest):
         # Run the actual tool function
         try:
             tool_result = await tool_fn(db_pool, **call_args)
-            if tool_name in ("mute_server_alerts", "acknowledge_event", "relabel_event"):
-                logger.info("[AUDIT] P2 Action: %s | Args: %s | Result: %s", tool_name, call_args, tool_result)
+            if tool_name in _P2_TOOLS:
+                # The format AGENTS.md specifies, so one grep finds every
+                # state change across the gateway and the voice worker.
+                logger.info(
+                    "[AUDIT] Action: %s | Target: %s | Result: %s | Source: agent",
+                    tool_name.upper(),
+                    call_args.get("server_id") or call_args.get("event_id") or "-",
+                    jsonable_encoder(tool_result),
+                )
         except HTTPException:
             raise  # re-raise clean HTTP errors (e.g. 404 event not found)
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Tool '{tool_name}' failed: {e}")
 
         tool_used = tool_name
+        chart = _build_chart(tool_name, tool_result)
 
         # Turn 2: Ask for a grounded answer with the tool output inlined as
         # text. Replaying the function_call/function_response pair instead
@@ -409,4 +593,4 @@ async def agent_ask(body: schemas.AskRequest):
         # Gemini answered directly without needing a tool (e.g. a general question)
         answer = response.text
 
-    return schemas.AskResponse(answer=answer, tool_used=tool_used)
+    return schemas.AskResponse(answer=answer, tool_used=tool_used, chart=chart)

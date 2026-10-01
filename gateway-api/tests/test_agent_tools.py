@@ -12,6 +12,7 @@ from pydantic import ValidationError
 # The env vars are seeded in conftest.py before this import.
 import main as gw
 from app.agent import tools, schemas
+from tests.conftest import ADMIN_PASSWORD, ADMIN_USERNAME
 
 
 # ══════════════════════════════════════════════════════
@@ -526,3 +527,525 @@ async def test_ask_endpoint_does_not_retry_quota_errors(client, db):
     assert response.status_code == 502
     assert "quota" in response.json()["detail"].lower()
     assert mock_client.models.generate_content.call_count == 1
+
+
+# ══════════════════════════════════════════════════════
+# Tool 8: get_fleet_overview
+#
+# This tool exists because the agent used to answer "how many players are
+# online?" by summing a truncated server list, which reported 19 players
+# on a fleet that had 45. The totals are computed in SQL now; these tests
+# pin that they are passed through untouched.
+# ══════════════════════════════════════════════════════
+
+@pytest.mark.asyncio
+async def test_get_fleet_overview_success():
+    """Totals come straight from the single aggregate row."""
+    pool, conn = make_pool(fetch_result=[{
+        "total_servers": 23, "online_servers": 23, "offline_servers": 0,
+        "stale_servers": 0, "total_players": 45, "total_slots": 230,
+        "avg_ping": 61.4, "last_metric_at": None,
+    }])
+
+    result = await tools.get_fleet_overview(pool)
+
+    assert result["total_servers"] == 23
+    assert result["total_players"] == 45
+    assert result["avg_ping"] == 61.4
+    # Nothing is stale, so no caveat is attached.
+    assert "note" in result or result["stale_servers"] == 0
+    assert "monitored_servers" in conn.queries[0][0]
+
+
+@pytest.mark.asyncio
+async def test_get_fleet_overview_flags_stale_servers():
+    """A short player count is labelled, not presented as the whole fleet."""
+    pool, _ = make_pool(fetch_result=[{
+        "total_servers": 23, "online_servers": 20, "offline_servers": 3,
+        "stale_servers": 4, "total_players": 30, "total_slots": 200,
+        "avg_ping": 58.0, "last_metric_at": None,
+    }])
+
+    result = await tools.get_fleet_overview(pool)
+
+    assert "4 server(s)" in result["note"]
+    assert "not included in the player count" in result["note"]
+
+
+@pytest.mark.asyncio
+async def test_get_fleet_overview_no_servers():
+    """An empty fleet reports zeros rather than raising."""
+    pool, _ = make_pool(fetch_result=[])
+    result = await tools.get_fleet_overview(pool)
+    assert result["total_servers"] == 0
+    assert result["total_players"] == 0
+
+
+@pytest.mark.asyncio
+async def test_get_fleet_overview_db_failure():
+    """DB error surfaces instead of returning a made-up total."""
+    pool, _ = make_pool(error=Exception("connection refused"))
+    with pytest.raises(Exception, match="connection refused"):
+        await tools.get_fleet_overview(pool)
+
+
+# ══════════════════════════════════════════════════════
+# Tool 9: get_server_ranking
+# ══════════════════════════════════════════════════════
+
+def rank_row(**overrides):
+    """A ranking row shaped like SERVER_RANKING_QUERY returns one."""
+    row = {
+        "server_id": "1.2.3.4:27015",
+        "server_name": "Warsaw #1",
+        "region": "Warsaw",
+        "status": "ONLINE",
+        "avg_ping": 50.0,
+        "ping_jitter": 2.0,
+        "p95_ping": 55.0,
+        "sample_count": 100,
+        "responsive_samples": 100,
+        "uptime_pct": 100.0,
+        "last_metric_at": None,
+        "crash_count": 0,
+        "anomaly_count": 0,
+        "player_count": 10,
+        "max_players": 20,
+        "current_ping": 49.0,
+        "metric_age_s": 3.0,
+    }
+    row.update(overrides)
+    return row
+
+
+@pytest.mark.asyncio
+async def test_get_server_ranking_prefers_stability_over_raw_ping():
+    """
+    The whole point of the tool: a steady server that never dropped out
+    beats a faster one that crashed twice.
+
+    Ranking on the latest ping alone named a different "best server" on
+    every ask, and ignored that the winner had been falling over.
+    """
+    pool, conn = make_pool(fetch_result=[
+        rank_row(server_id="fast:27015", server_name="Fast but flaky",
+                 avg_ping=25.0, crash_count=2, uptime_pct=90.0),
+        rank_row(server_id="steady:27015", server_name="Slower but solid",
+                 avg_ping=60.0, crash_count=0, uptime_pct=100.0),
+    ])
+
+    result = await tools.get_server_ranking(pool, hours=1)
+
+    assert [r["server_id"] for r in result["ranked"]] == ["steady:27015", "fast:27015"]
+    assert result["best"]["server_name"] == "Slower but solid"
+    assert result["ranked"][0]["rank"] == 1
+    # The window was passed as a query parameter, not spliced into SQL.
+    assert conn.queries[0][1] == (1,)
+
+
+@pytest.mark.asyncio
+async def test_get_server_ranking_explains_a_higher_ping_winner():
+    """The answer has to say why the slower server won, not just name it."""
+    pool, _ = make_pool(fetch_result=[
+        rank_row(server_id="fast:27015", server_name="Fast but flaky",
+                 avg_ping=25.0, crash_count=3, uptime_pct=88.0),
+        rank_row(server_id="steady:27015", server_name="Slower but solid",
+                 avg_ping=60.0, crash_count=0, uptime_pct=100.0),
+    ])
+
+    result = await tools.get_server_ranking(pool, hours=1)
+
+    assert "stability" in result["why_best"]
+    assert "Slower but solid" in result["why_best"]
+    reasons = " ".join(result["best"]["reasons"])
+    assert "no crashes" in reasons
+    assert "steady" in reasons
+
+
+@pytest.mark.asyncio
+async def test_get_server_ranking_excludes_offline_and_stale_servers():
+    """A server that is down, or has stopped reporting, cannot be 'best'."""
+    pool, _ = make_pool(fetch_result=[
+        rank_row(server_id="down:27015", status="OFFLINE", avg_ping=10.0),
+        rank_row(server_id="silent:27015", avg_ping=12.0, metric_age_s=900.0),
+        rank_row(server_id="live:27015", avg_ping=70.0),
+    ])
+
+    result = await tools.get_server_ranking(pool, hours=1)
+
+    assert [r["server_id"] for r in result["ranked"]] == ["live:27015"]
+    excluded = {e["server_id"]: e["excluded_because"] for e in result["excluded"]}
+    assert "offline" in excluded["down:27015"]
+    assert "health check" in excluded["silent:27015"]
+
+
+@pytest.mark.asyncio
+async def test_get_server_ranking_no_eligible_servers():
+    """Returns no winner rather than inventing one when nothing qualifies."""
+    pool, _ = make_pool(fetch_result=[rank_row(status="OFFLINE")])
+    result = await tools.get_server_ranking(pool, hours=1)
+    assert result["ranked"] == []
+    assert "best" not in result
+
+
+def test_get_server_ranking_invalid_hours():
+    """hours outside 1–24 is rejected before the DB is touched."""
+    with pytest.raises(ValidationError):
+        schemas.RankingQuery(hours=0)
+    with pytest.raises(ValidationError):
+        schemas.RankingQuery(hours=25)
+    assert schemas.RankingQuery().hours == 1
+
+
+@pytest.mark.asyncio
+async def test_get_server_ranking_db_failure():
+    """DB failure is raised, not answered around."""
+    pool, _ = make_pool(error=Exception("db timeout"))
+    with pytest.raises(Exception, match="db timeout"):
+        await tools.get_server_ranking(pool, hours=1)
+
+
+# ══════════════════════════════════════════════════════
+# Charts: only where a chart was the question
+# ══════════════════════════════════════════════════════
+
+def test_counting_questions_get_no_chart():
+    """
+    "How many servers are online?" used to come back with a ten-bar
+    latency chart stacked above a one-line answer. Only the ranking tool
+    produces a chart now.
+    """
+    from app.agent import router as agent_router
+
+    assert agent_router._build_chart("get_fleet_overview", {"total_servers": 23}) is None
+    assert agent_router._build_chart("get_server_summary", [{"server_id": "a"}]) is None
+    assert agent_router._build_chart("get_recent_events", []) is None
+
+
+def test_ranking_chart_matches_the_ranking_order():
+    """The bars are the ranking's own averages, in the ranking's own order."""
+    from app.agent import router as agent_router
+
+    chart = agent_router._build_chart("get_server_ranking", {
+        "window_hours": 1,
+        "ranked": [
+            {"server_name": "Solid", "avg_ping": 60.0, "crash_count": 0, "rank": 1},
+            {"server_name": "Flaky", "avg_ping": 25.0, "crash_count": 2, "rank": 2},
+        ],
+    })
+
+    assert [r.label for r in chart.rows] == ["Solid", "Flaky"]
+    assert [r.value for r in chart.rows] == [60.0, 25.0]
+    # The crash count travels with the bar, so the chart cannot read as
+    # "lowest bar wins" when the ranking says otherwise.
+    assert chart.rows[0].note is None
+    assert chart.rows[1].note == "2 crash(es)"
+
+
+def test_ranking_chart_is_empty_when_nothing_ranked():
+    from app.agent import router as agent_router
+    assert agent_router._build_chart("get_server_ranking", {"ranked": []}) is None
+
+
+# ══════════════════════════════════════════════════════
+# Endpoints the voice agent reads the same numbers through
+# ══════════════════════════════════════════════════════
+
+@pytest.mark.asyncio
+async def test_fleet_overview_endpoint(client, db):
+    """The voice worker gets its totals from here, not from its own query."""
+    db._fetch_result = [{
+        "total_servers": 23, "online_servers": 23, "offline_servers": 0,
+        "stale_servers": 0, "total_players": 45, "total_slots": 230,
+        "avg_ping": 61.4, "last_metric_at": None,
+    }]
+
+    response = await client.get("/api/v1/agent/tools/fleet-overview")
+
+    assert response.status_code == 200
+    assert response.json()["total_players"] == 45
+
+
+@pytest.mark.asyncio
+async def test_server_ranking_endpoint(client, db):
+    db._fetch_result = [rank_row(server_id="live:27015", avg_ping=42.0)]
+
+    response = await client.get("/api/v1/agent/tools/server-ranking?hours=6")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["window_hours"] == 6
+    assert body["ranked"][0]["server_id"] == "live:27015"
+
+
+@pytest.mark.asyncio
+async def test_server_ranking_endpoint_rejects_bad_window(client, db):
+    """hours is validated at the edge, the same bounds as the tool schema."""
+    assert (await client.get("/api/v1/agent/tools/server-ranking?hours=0")).status_code == 422
+    assert (await client.get("/api/v1/agent/tools/server-ranking?hours=99")).status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_tool_endpoints_report_db_not_ready(monkeypatch, client):
+    monkeypatch.setattr(gw, "db_pool", None)
+    assert (await client.get("/api/v1/agent/tools/fleet-overview")).status_code == 503
+    assert (await client.get("/api/v1/agent/tools/server-ranking")).status_code == 503
+
+
+@pytest.mark.asyncio
+async def test_ask_endpoint_returns_a_chart_with_a_ranking_answer(client, db):
+    """A ranking question comes back with the chart attached to the answer."""
+    db._fetch_result = [rank_row(server_id="live:27015", server_name="Solid", avg_ping=42.0)]
+
+    fake_function_call = MagicMock()
+    fake_function_call.name = "get_server_ranking"
+    fake_function_call.args = {"hours": 1}
+    fake_function_call.id = None
+
+    fake_part = MagicMock()
+    fake_part.function_call = fake_function_call
+    fake_part.text = None
+
+    fake_turn1 = MagicMock()
+    fake_turn1.candidates = [MagicMock(content=MagicMock(parts=[fake_part]))]
+    fake_turn1.text = None
+
+    fake_turn2 = MagicMock()
+    fake_turn2.text = "Solid is the best server: 42ms average ping and no crashes in the last hour."
+
+    with patch("app.agent.router._client") as mock_client:
+        mock_client.models.generate_content.side_effect = [fake_turn1, fake_turn2]
+        response = await client.post(
+            "/api/v1/agent/ask", json={"question": "What's the best server?"}
+        )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["tool_used"] == "get_server_ranking"
+    assert data["chart"]["rows"][0]["label"] == "Solid"
+
+
+@pytest.mark.asyncio
+async def test_ask_endpoint_sends_no_chart_for_a_counting_question(client, db):
+    """A count comes back as a number, with no chart riding along."""
+    db._fetch_result = [{
+        "total_servers": 23, "online_servers": 23, "offline_servers": 0,
+        "stale_servers": 0, "total_players": 45, "total_slots": 230,
+        "avg_ping": 61.4, "last_metric_at": None,
+    }]
+
+    fake_function_call = MagicMock()
+    fake_function_call.name = "get_fleet_overview"
+    fake_function_call.args = {}
+    fake_function_call.id = None
+
+    fake_part = MagicMock()
+    fake_part.function_call = fake_function_call
+    fake_part.text = None
+
+    fake_turn1 = MagicMock()
+    fake_turn1.candidates = [MagicMock(content=MagicMock(parts=[fake_part]))]
+    fake_turn1.text = None
+
+    fake_turn2 = MagicMock()
+    fake_turn2.text = "There are 45 players across 23 online servers."
+
+    with patch("app.agent.router._client") as mock_client:
+        mock_client.models.generate_content.side_effect = [fake_turn1, fake_turn2]
+        response = await client.post(
+            "/api/v1/agent/ask", json={"question": "How many players are online?"}
+        )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["chart"] is None
+    assert "45" in data["answer"]
+
+
+# ══════════════════════════════════════════════════════
+# P2 authorization
+#
+# P1/P2 used to be a prompt instruction and nothing more on this
+# endpoint. The typed channel wrote straight to the database with no
+# login at all, while the spoken one went through an authenticated
+# endpoint and got a 403 -- the same sentence was refused by voice and
+# carried out by text.
+# ══════════════════════════════════════════════════════
+
+def _model_calls(tool_name, args, answer="done"):
+    """Build the two mocked Gemini turns for a tool call."""
+    call = MagicMock()
+    call.name = tool_name
+    call.args = args
+    call.id = None
+
+    part = MagicMock()
+    part.function_call = call
+    part.text = None
+
+    turn1 = MagicMock()
+    turn1.candidates = [MagicMock(content=MagicMock(parts=[part]))]
+    turn1.text = None
+
+    turn2 = MagicMock()
+    turn2.text = answer
+    return [turn1, turn2]
+
+
+@pytest.mark.asyncio
+async def test_p2_tool_is_refused_without_an_admin_login(client, db):
+    """An anonymous visitor cannot mute a server by asking the agent to."""
+    with patch("app.agent.router._client") as mock_client:
+        mock_client.models.generate_content.side_effect = _model_calls(
+            "mute_server_alerts", {"server_id": "1.2.3.4:27015", "minutes": 30}
+        )
+        response = await client.post(
+            "/api/v1/agent/ask",
+            json={"question": "Mute alerts for 1.2.3.4:27015 for 30 minutes. Yes, do it."},
+        )
+
+    assert response.status_code == 403
+    assert "admin" in response.json()["detail"].lower()
+    # The refusal happens before the database is touched.
+    assert db.queries == []
+
+
+@pytest.mark.asyncio
+async def test_p2_tool_runs_for_an_admin(client, db, admin_headers):
+    """With an admin key the same request goes through."""
+    with patch("app.agent.router._client") as mock_client:
+        mock_client.models.generate_content.side_effect = _model_calls(
+            "acknowledge_event", {"event_id": 7}, answer="Event 7 acknowledged."
+        )
+        response = await client.post(
+            "/api/v1/agent/ask",
+            json={"question": "Acknowledge event 7. Confirmed."},
+            headers=admin_headers,
+        )
+
+    assert response.status_code == 200
+    assert response.json()["tool_used"] == "acknowledge_event"
+
+
+@pytest.mark.asyncio
+async def test_p2_tool_accepts_the_dashboard_session_cookie(client, db):
+    """An admin signed in through the dashboard is an admin here too."""
+    login = await client.post(
+        "/api/v1/admin/login",
+        json={"username": ADMIN_USERNAME, "password": ADMIN_PASSWORD},
+    )
+    assert login.status_code == 200
+
+    with patch("app.agent.router._client") as mock_client:
+        mock_client.models.generate_content.side_effect = _model_calls(
+            "acknowledge_event", {"event_id": 3}, answer="Event 3 acknowledged."
+        )
+        response = await client.post(
+            "/api/v1/agent/ask", json={"question": "Acknowledge event 3. Confirmed."}
+        )
+
+    assert response.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_p1_tools_stay_open_to_everyone(client, db):
+    """Asking what the servers are doing must not require a login."""
+    db._fetch_result = [{
+        "total_servers": 23, "online_servers": 23, "offline_servers": 0,
+        "stale_servers": 0, "total_players": 45, "total_slots": 230,
+        "avg_ping": 61.4, "last_metric_at": None,
+    }]
+
+    with patch("app.agent.router._client") as mock_client:
+        mock_client.models.generate_content.side_effect = _model_calls(
+            "get_fleet_overview", {}, answer="There are 45 players online."
+        )
+        response = await client.post(
+            "/api/v1/agent/ask", json={"question": "How many players are online?"}
+        )
+
+    assert response.status_code == 200
+
+
+def test_every_state_changing_tool_is_marked_p2():
+    """
+    A new write tool must not reach the registry without being listed.
+
+    The guard is a name list, so a tool added to the registry but not to
+    _P2_TOOLS would quietly be world-callable.
+    """
+    from app.agent import router as agent_router
+
+    writes = {"mute_server_alerts", "acknowledge_event", "relabel_event"}
+    assert writes <= agent_router._P2_TOOLS
+    # Every P2 name is a real registered tool, so none is a dead string.
+    assert agent_router._P2_TOOLS <= set(agent_router._TOOL_BY_NAME)
+
+
+# ══════════════════════════════════════════════════════
+# Audit trail
+# ══════════════════════════════════════════════════════
+
+@pytest.mark.asyncio
+async def test_executed_p2_action_writes_an_audit_line(client, db, admin_headers, caplog):
+    """
+    AGENTS.md requires an audit entry per executed P2 action.
+
+    The line was being written to a logger the service never configured,
+    so it went nowhere and a mute left no trace outside its database row.
+    """
+    import logging
+
+    with caplog.at_level(logging.INFO, logger="gsh.gateway.agent"):
+        with patch("app.agent.router._client") as mock_client:
+            mock_client.models.generate_content.side_effect = _model_calls(
+                "acknowledge_event", {"event_id": 42}, answer="Event 42 acknowledged."
+            )
+            response = await client.post(
+                "/api/v1/agent/ask",
+                json={"question": "Acknowledge event 42. Confirmed."},
+                headers=admin_headers,
+            )
+
+    assert response.status_code == 200
+    audit = [r.getMessage() for r in caplog.records if "[AUDIT]" in r.getMessage()]
+    assert len(audit) == 1
+    line = audit[0]
+    # The exact shape AGENTS.md specifies, so one grep finds them all.
+    assert "Action: ACKNOWLEDGE_EVENT" in line
+    assert "Target: 42" in line
+    assert "Source: agent" in line
+
+
+@pytest.mark.asyncio
+async def test_refused_p2_action_is_also_audited(client, db, caplog):
+    """A denial is worth a line too -- that is the one worth noticing."""
+    import logging
+
+    with caplog.at_level(logging.WARNING, logger="gsh.gateway.agent"):
+        with patch("app.agent.router._client") as mock_client:
+            mock_client.models.generate_content.side_effect = _model_calls(
+                "mute_server_alerts", {"server_id": "1.2.3.4:27015", "minutes": 30}
+            )
+            await client.post(
+                "/api/v1/agent/ask", json={"question": "Mute 1.2.3.4:27015. Yes."}
+            )
+
+    audit = [r.getMessage() for r in caplog.records if "[AUDIT]" in r.getMessage()]
+    assert any("DENIED" in line for line in audit)
+
+
+@pytest.mark.asyncio
+async def test_p1_tool_writes_no_audit_line(client, db, caplog):
+    """Reads are not state changes; auditing them would bury the writes."""
+    import logging
+
+    db._fetch_result = []
+    with caplog.at_level(logging.INFO, logger="gsh.gateway.agent"):
+        with patch("app.agent.router._client") as mock_client:
+            mock_client.models.generate_content.side_effect = _model_calls(
+                "get_recent_events", {"limit": 5}, answer="No recent incidents."
+            )
+            await client.post("/api/v1/agent/ask", json={"question": "Any incidents?"})
+
+    assert not [r for r in caplog.records if "[AUDIT]" in r.getMessage()]

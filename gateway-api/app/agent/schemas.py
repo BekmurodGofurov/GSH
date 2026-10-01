@@ -10,10 +10,32 @@ class AskRequest(BaseModel):
 
 # What the endpoint returns to the browser
 
+class ChartRow(BaseModel):
+    """One bar in an inline chart."""
+    label: str
+    value: float
+    status: str | None = None
+    note: str | None = None
+
+
+class ChartPayload(BaseModel):
+    """An inline chart the panel draws underneath the answer.
+
+    Only sent when the question actually asks to compare or rank
+    something. A chart attached to "how many servers are online?" answers
+    a question nobody asked and buries the number the user wanted.
+    """
+    chartType: Literal["bar"] = "bar"
+    title: str
+    unit: str = "ms"
+    rows: list[ChartRow]
+
+
 class AskResponse(BaseModel):
     """The agent's grounded answer, plus which tool it used (if any)."""
     answer: str
     tool_used: str | None = None
+    chart: ChartPayload | None = None
 
 
 #Tool input schemas
@@ -27,6 +49,13 @@ class LatencyQuery(BaseModel):
     """Input for get_average_latency."""
     minutes: int = Field(default=10, ge=1, le=60)
     server_id: str | None = Field(default=None)
+
+
+class RankingQuery(BaseModel):
+    """Input for get_server_ranking."""
+    # A day is the longest window worth ranking on: beyond that a server
+    # that was fixed this morning still carries last night's crashes.
+    hours: int = Field(default=1, ge=1, le=24)
 
 
 class RelabelRequest(BaseModel):

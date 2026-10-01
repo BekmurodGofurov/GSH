@@ -1,6 +1,13 @@
-livekit-agents[google]>=0.12.0
-livekit-plugins-google>=0.8.0
-livekit-plugins-silero>=0.7.0
+# The three livekit packages are pinned to one exact version together.
+#
+# They were previously floating (>=0.12.0 / >=0.8.0), and the plugins are
+# only ever tested against their matching agents release: a fresh build
+# resolved livekit-agents 1.3 against livekit-plugins-google 1.5, which
+# fails on import. A floating plugin also moves the realtime model it
+# defaults to, which changes the assistant's voice. Upgrade all three in
+# one commit, never one alone.
+livekit-agents[google]==1.8.3
+livekit-plugins-google==1.8.3
+livekit-plugins-silero==1.8.3
 python-dotenv>=1.0.0
-asyncpg>=0.29.0
 httpx>=0.27.0
