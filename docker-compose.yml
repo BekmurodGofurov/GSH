@@ -84,6 +84,10 @@ services:
       LIVEKIT_URL: "${LIVEKIT_URL:-}"
       LIVEKIT_API_KEY: "${LIVEKIT_API_KEY:-}"
       LIVEKIT_API_SECRET: "${LIVEKIT_API_SECRET:-}"
+      # Which voice worker this stack's rooms ask for by name. It defaults
+      # off COMPOSE_PROJECT_NAME so dev and production never dispatch each
+      # other's worker; it must match VOICE_AGENT_NAME on voice-agent below.
+      VOICE_AGENT_NAME: "${VOICE_AGENT_NAME:-${COMPOSE_PROJECT_NAME:-gsh}-voice}"
     depends_on:
       timescaledb:
         condition: service_healthy
@@ -203,7 +207,23 @@ services:
       LIVEKIT_API_KEY: "${LIVEKIT_API_KEY:?LIVEKIT_API_KEY is required in .env}"
       LIVEKIT_API_SECRET: "${LIVEKIT_API_SECRET:?LIVEKIT_API_SECRET is required in .env}"
       AGENT_LLM_API_KEY: "${AGENT_LLM_API_KEY:?AGENT_LLM_API_KEY is required in .env}"
-      AGENT_LLM_MODEL: "${AGENT_LLM_MODEL:-gemini-2.0-flash-exp}"
+      # The realtime (speech) model and prebuilt voice. Both are set
+      # explicitly so a rebuild cannot change how the assistant sounds --
+      # see the comment on VOICE_MODEL in worker.py. The model must
+      # support bidiGenerateContent; AGENT_LLM_MODEL (the text model used
+      # by gateway-api) is a different setting and does not apply here.
+      AGENT_VOICE_MODEL: "${AGENT_VOICE_MODEL:-gemini-3.8-live}"
+      AGENT_VOICE: "${AGENT_VOICE:-Puck}"
+      # Must match VOICE_AGENT_NAME on gateway-api: the gateway stamps this
+      # name into every room token, and only the worker registered under it
+      # is dispatched.
+      VOICE_AGENT_NAME: "${VOICE_AGENT_NAME:-${COMPOSE_PROJECT_NAME:-gsh}-voice}"
+      # The P2 tools (mute, acknowledge, daily report) call gateway
+      # endpoints that sit behind X-API-Key. Without these the worker sent
+      # the header empty and every confirmed P2 action came back 401.
+      ADMIN_API_KEY: "${ADMIN_API_KEY:-}"
+      TELEGRAM_BOT_TOKEN: "${TELEGRAM_BOT_TOKEN:-}"
+      TELEGRAM_CHAT_ID: "${TELEGRAM_CHAT_ID:-}"
       GATEWAY_INTERNAL_URL: "http://gateway-api:${GATEWAY_CONTAINER_PORT:-${GATEWAY_PORT:-8000}}"
       INGESTION_INTERNAL_URL: "http://ingestion-service:${INGESTION_CONTAINER_PORT:-${INGESTION_PORT:-8001}}"
     depends_on:

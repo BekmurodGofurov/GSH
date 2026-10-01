@@ -1,0 +1,193 @@
+import React from 'react';
+import { describe, expect, it, vi, beforeEach } from 'vitest';
+import { render, screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+
+// The panel pulls in the LiveKit components, which open a real WebSocket
+// and reach for getUserMedia the moment a room renders. jsdom has
+// neither, so the room and its hooks are stubbed: these tests are about
+// the one shared conversation, not about LiveKit's internals.
+vi.mock('@livekit/components-styles', () => ({}));
+vi.mock('@livekit/components-react', () => ({
+  LiveKitRoom: ({ children }) => <div data-testid="livekit-room">{children}</div>,
+  RoomAudioRenderer: () => null,
+  // Stood up the way the real one renders: a plain <button> with the
+  // caller's props spread onto it and no type of its own. Inside a <form>
+  // that defaults to submit, so this stub is what keeps the panel honest
+  // about where the voice controls sit.
+  StartAudio: ({ label, ...props }) => <button {...props}>{label}</button>,
+  BarVisualizer: () => null,
+  useVoiceAssistant: () => ({ state: 'listening', audioTrack: null, error: null }),
+  useConnectionState: () => 'connected',
+  useLocalParticipant: () => ({ localParticipant: null, isMicrophoneEnabled: true }),
+  useDataChannel: () => ({}),
+  useRoomContext: () => null,
+}));
+vi.mock('livekit-client', () => ({ ConnectionState: { Connected: 'connected' } }));
+
+vi.mock('../services/api', () => ({
+  api: {
+    askAgent: vi.fn(),
+    getLivekitToken: vi.fn(),
+  },
+}));
+
+import { AskPanel } from '../components/common/AskPanel';
+import { api } from '../services/api';
+
+function renderPanel() {
+  return render(<AskPanel isOpen onOpen={() => {}} onClose={() => {}} />);
+}
+
+describe('AskPanel', () => {
+  beforeEach(() => {
+    api.askAgent.mockReset();
+    api.getLivekitToken.mockReset();
+  });
+
+  it('offers typing and talking in one place, with no mode to pick first', () => {
+    renderPanel();
+
+    // One composer, carrying both ways in.
+    expect(screen.getByPlaceholderText(/Ask about servers/i)).toBeInTheDocument();
+    expect(screen.getByLabelText(/Start voice session/i)).toBeInTheDocument();
+    // The old Text / Voice tab switch is gone.
+    expect(screen.queryByRole('button', { name: /^Text$/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /^Voice$/ })).not.toBeInTheDocument();
+  });
+
+  it('shows the answer to a typed question in the conversation', async () => {
+    api.askAgent.mockResolvedValue({
+      data: { answer: 'There are 45 players across 23 online servers.', tool_used: 'get_fleet_overview', chart: null },
+      error: null,
+    });
+    const user = userEvent.setup();
+    renderPanel();
+
+    await user.type(screen.getByPlaceholderText(/Ask about servers/i), 'How many players are online?{Enter}');
+
+    expect(await screen.findByText(/45 players across 23 online servers/)).toBeInTheDocument();
+    expect(screen.getByText('get_fleet_overview')).toBeInTheDocument();
+  });
+
+  it('draws no chart for a counting answer', async () => {
+    api.askAgent.mockResolvedValue({
+      data: { answer: 'There are 23 servers, all online.', tool_used: 'get_fleet_overview', chart: null },
+      error: null,
+    });
+    const user = userEvent.setup();
+    const { container } = renderPanel();
+
+    await user.type(screen.getByPlaceholderText(/Ask about servers/i), 'How many servers are online?{Enter}');
+    await screen.findByText(/23 servers, all online/);
+
+    expect(container.querySelector('svg')).toBeNull();
+  });
+
+  it('draws the chart under a ranking answer, in the ranking order', async () => {
+    api.askAgent.mockResolvedValue({
+      data: {
+        answer: 'Solid is the best server right now.',
+        tool_used: 'get_server_ranking',
+        chart: {
+          chartType: 'bar',
+          title: 'Average ping over 1h — best first',
+          unit: 'ms',
+          rows: [
+            { label: 'Solid', value: 60, status: 'ONLINE', note: null },
+            { label: 'Flaky', value: 25, status: 'ONLINE', note: '2 crash(es)' },
+          ],
+        },
+      },
+      error: null,
+    });
+    const user = userEvent.setup();
+    renderPanel();
+
+    await user.type(screen.getByPlaceholderText(/Ask about servers/i), "What's the best server?{Enter}");
+
+    await screen.findByText(/Solid is the best server/);
+    expect(screen.getByText(/Average ping over 1h/i)).toBeInTheDocument();
+    // The crash count sits beside the bar, so a taller winning bar still reads
+    // correctly against the answer.
+    expect(screen.getByText('2 crash(es)')).toBeInTheDocument();
+  });
+
+  it('keeps the typed conversation when a voice session starts', async () => {
+    api.askAgent.mockResolvedValue({
+      data: { answer: 'All 23 servers are online.', tool_used: 'get_fleet_overview', chart: null },
+      error: null,
+    });
+    api.getLivekitToken.mockResolvedValue({
+      data: { token: 'test-token', url: 'wss://test.livekit.cloud' },
+      error: null,
+    });
+    const user = userEvent.setup();
+    renderPanel();
+
+    await user.type(screen.getByPlaceholderText(/Ask about servers/i), 'Status?{Enter}');
+    await screen.findByText(/All 23 servers are online/);
+
+    await user.click(screen.getByLabelText(/Start voice session/i));
+
+    // One thread: switching to voice does not clear what was typed, and
+    // the text box stays available while the mic is live.
+    await screen.findByTestId('livekit-room');
+    expect(screen.getByText(/All 23 servers are online/)).toBeInTheDocument();
+    expect(screen.getByPlaceholderText(/Ask about servers/i)).toBeInTheDocument();
+  });
+
+  it('does not send a half-typed question when audio is enabled', async () => {
+    api.getLivekitToken.mockResolvedValue({
+      data: { token: 'test-token', url: 'wss://test.livekit.cloud' },
+      error: null,
+    });
+    api.askAgent.mockResolvedValue({ data: { answer: 'ok', tool_used: null, chart: null }, error: null });
+    const user = userEvent.setup();
+    renderPanel();
+
+    await user.click(screen.getByLabelText(/Start voice session/i));
+    await screen.findByTestId('livekit-room');
+
+    await user.type(screen.getByPlaceholderText(/Ask about servers/i), 'half a thought');
+    await user.click(screen.getByText('Enable audio'));
+
+    // LiveKit's buttons carry no `type`, so one inside the form would
+    // count as a submit and fire the draft off as a question.
+    expect(api.askAgent).not.toHaveBeenCalled();
+    expect(screen.getByPlaceholderText(/Ask about servers/i)).toHaveValue('half a thought');
+  });
+
+  it('surfaces a failed voice handshake without losing the chat', async () => {
+    api.getLivekitToken.mockResolvedValue({ data: null, error: 'LiveKit is not configured on this server.' });
+    const user = userEvent.setup();
+    renderPanel();
+
+    await user.click(screen.getByLabelText(/Start voice session/i));
+
+    expect(await screen.findByText(/LiveKit is not configured/)).toBeInTheDocument();
+    expect(screen.getByPlaceholderText(/Ask about servers/i)).toBeInTheDocument();
+  });
+
+  it('shows an agent error as an error bubble', async () => {
+    api.askAgent.mockResolvedValue({ data: null, error: 'Request timed out' });
+    const user = userEvent.setup();
+    renderPanel();
+
+    await user.type(screen.getByPlaceholderText(/Ask about servers/i), 'Status?{Enter}');
+
+    expect(await screen.findByText(/Request timed out/)).toBeInTheDocument();
+  });
+
+  it('sends a suggested question when one is clicked', async () => {
+    api.askAgent.mockResolvedValue({ data: { answer: 'ok', tool_used: null, chart: null }, error: null });
+    const user = userEvent.setup();
+    renderPanel();
+
+    await user.click(screen.getByText('Which server is performing best, and why?'));
+
+    await waitFor(() =>
+      expect(api.askAgent).toHaveBeenCalledWith('Which server is performing best, and why?')
+    );
+  });
+});

@@ -39,6 +39,11 @@ jobs:
             python-version: '3.11'
           - service: alerting-service
             python-version: '3.12'
+          # The voice agent's tools used to ship untested: one of them
+          # raised NameError on its own happy path and nothing caught it
+          # before users did.
+          - service: voice-agent
+            python-version: '3.12'
     steps:
       - uses: actions/checkout@v4
 

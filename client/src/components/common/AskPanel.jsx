@@ -9,11 +9,9 @@ import {
   AlertTriangle,
   Mic,
   MicOff,
-  MessageSquare,
   RotateCcw,
   AlertCircle,
   Clock,
-  Sparkles,
 } from 'lucide-react';
 import { api } from '../../services/api';
 import '@livekit/components-styles';
@@ -28,15 +26,15 @@ import {
   useDataChannel,
   useRoomContext,
 } from '@livekit/components-react';
-import { ConnectionState, RoomEvent } from 'livekit-client';
+import { ConnectionState } from 'livekit-client';
 
 const MAX_INPUT_HEIGHT = 180;
 const INACTIVITY_TIMEOUT_S = 60;
 
 const SUGGESTED_QUERIES = [
-  'What is the average latency right now?',
+  'How many players are online right now?',
+  'Which server is performing best, and why?',
   'Which servers are currently offline?',
-  'Show me the best performing server.',
   'Show me recent incident events.',
 ];
 
@@ -462,24 +460,34 @@ function MarkdownContent({ content }) {
   return <GeneralMarkdown content={content} />;
 }
 
+
 // ─── Inline bar chart (pure SVG, no external dependencies) ───────────────────
-function BarChart({ title, rows }) {
+function BarChart({ title, rows, unit = 'ms' }) {
   if (!rows || rows.length === 0) return null;
   const max = Math.max(...rows.map((r) => r.value || 0), 1);
   const BAR_H = 18;
-  const GAP = 6;
-  const LABEL_W = 130;
-  const BAR_MAX_W = 160;
+  const GAP = 8;
+  const LABEL_W = 150;
+  const BAR_MAX_W = 150;
+  const VALUE_W = 110;
+  const width = LABEL_W + BAR_MAX_W + VALUE_W;
   const svgH = rows.length * (BAR_H + GAP) + 4;
 
   return (
     <div className="my-2 rounded-xl border border-cyan-800/40 bg-slate-900/90 px-3 pt-3 pb-2 backdrop-blur-sm">
       <p className="text-[10px] font-bold text-cyan-400 uppercase tracking-wider mb-2">{title}</p>
-      <svg width={LABEL_W + BAR_MAX_W + 48} height={svgH} className="overflow-visible">
+      {/* viewBox + width:100% so the chart shrinks to fit a phone-width
+          panel instead of pushing a horizontal scrollbar into the chat. */}
+      <svg
+        viewBox={`0 0 ${width} ${svgH}`}
+        width="100%"
+        height={svgH}
+        preserveAspectRatio="xMinYMin meet"
+      >
         {rows.map((row, i) => {
           const y = i * (BAR_H + GAP);
           const barW = max > 0 ? Math.round((row.value / max) * BAR_MAX_W) : 4;
-          const isOnline = row.status === 'ONLINE';
+          const isOnline = row.status !== 'OFFLINE';
           const barColor = isOnline ? '#22d3ee' : '#f87171';
           return (
             <g key={i}>
@@ -509,7 +517,16 @@ function BarChart({ title, rows }) {
                 fill="#e2e8f0"
                 fontFamily="monospace"
               >
-                {row.value}ms
+                {row.value}
+                {unit}
+                {/* The bar is latency, but the ranking turns on stability
+                    too -- so the crash count rides along with the bar
+                    rather than living only in the spoken answer. */}
+                {row.note && (
+                  <tspan fill="#fbbf24" dx="6">
+                    {row.note}
+                  </tspan>
+                )}
               </text>
             </g>
           );
@@ -519,123 +536,123 @@ function BarChart({ title, rows }) {
   );
 }
 
-// ─── Unmistakable Mic Button ─────────────────────────────────────────────────
-function AnimatedMicButton({ voiceState, isMicrophoneEnabled, onToggle }) {
-  const isMuted = !isMicrophoneEnabled;
-  const isListening = voiceState === 'listening';
-  const isSpeaking = voiceState === 'speaking';
-  const showRings = !isMuted && (isListening || isSpeaking);
+// ─── Message bubbles ─────────────────────────────────────────────────────────
 
+function UserBubble({ item }) {
   return (
-    <div className="flex flex-col items-center gap-2">
-      <div className="relative flex items-center justify-center">
-        {showRings && isListening && (
-          <>
-            <span className="absolute w-20 h-20 rounded-full bg-cyan-500/20 animate-ping" style={{ animationDuration: '1.4s' }} />
-            <span className="absolute w-16 h-16 rounded-full bg-cyan-500/25 animate-ping" style={{ animationDuration: '1s' }} />
-          </>
-        )}
-        {showRings && isSpeaking && (
-          <span className="absolute w-20 h-20 rounded-full bg-violet-500/20 animate-ping" style={{ animationDuration: '1.2s' }} />
-        )}
-
-        <button
-          type="button"
-          onClick={onToggle}
-          title={isMuted ? 'Microphone is muted — click to unmute' : 'Microphone is active — click to mute'}
-          aria-label={isMuted ? 'Unmute microphone' : 'Mute microphone'}
-          className={`
-            relative z-10 flex items-center justify-center w-14 h-14 rounded-full
-            border-2 transition-all duration-200 select-none focus:outline-none
-            active:scale-95 cursor-pointer
-            ${isMuted
-              ? 'bg-slate-900 border-rose-500 text-rose-400 hover:bg-slate-800 shadow-[0_0_12px_rgba(244,63,94,0.25)]'
-              : isSpeaking
-                ? 'bg-violet-600 border-violet-400 text-white shadow-[0_0_24px_rgba(139,92,246,0.5)]'
-                : 'bg-cyan-600 border-cyan-400 text-white shadow-[0_0_24px_rgba(6,182,212,0.5)]'
-            }
-          `}
-        >
-          {isMuted ? <MicOff className="w-6 h-6" /> : <Mic className="w-6 h-6" />}
-        </button>
-      </div>
-
-      <div className="flex flex-col items-center gap-1 text-center select-none">
-        <span
-          className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold tracking-wider uppercase border ${
-            isMuted
-              ? 'bg-rose-950/80 text-rose-300 border-rose-800'
-              : 'bg-cyan-950/80 text-cyan-300 border-cyan-800'
-          }`}
-        >
-          {isMuted ? 'Muted' : 'Mic Active'}
+    <div className="flex justify-end">
+      <div className="max-w-[85%] px-3.5 py-2.5 text-xs leading-relaxed bg-slate-800/90 text-slate-100 border border-slate-700/60 rounded-2xl rounded-br-sm shadow-sm">
+        <span className="flex items-center gap-1 text-[10px] font-bold text-slate-400 mb-1">
+          You
+          {item.viaVoice && <Mic className="w-2.5 h-2.5 text-slate-500" />}
+          {!item.final && item.viaVoice && (
+            <span className="font-normal italic opacity-70">speaking…</span>
+          )}
         </span>
-        <span className="text-[11px] font-mono text-slate-400">
-          {isMuted
-            ? 'Click to unmute'
-            : isSpeaking
-              ? 'GSH speaking…'
-              : isListening
-                ? 'Listening to you…'
-                : 'Ready — speak now'}
-        </span>
+        <p className="whitespace-pre-wrap">{item.text}</p>
       </div>
     </div>
   );
 }
 
-// ─── Voice Tab with Real-time Streamed Transcript ────────────────────────────
-function VoiceTab({ onDisconnect, onError }) {
-  const { state, audioTrack, error: agentError } = useVoiceAssistant();
-  const connectionState = useConnectionState();
-  const { localParticipant, isMicrophoneEnabled } = useLocalParticipant();
+function AgentBubble({ item }) {
+  // A spoken reply arrives a word at a time and is plain speech, so it
+  // renders as a light bubble. A typed reply arrives complete and may
+  // carry markdown, incident cards or a tool badge.
+  if (item.viaVoice) {
+    return (
+      <div className="flex justify-start">
+        <div
+          className={`max-w-[85%] px-3.5 py-2 text-xs leading-relaxed bg-gradient-to-br from-cyan-900/50 to-slate-900/60 text-cyan-100 border border-cyan-800/30 rounded-2xl rounded-bl-sm ${
+            item.final ? 'opacity-100' : 'opacity-80'
+          }`}
+        >
+          <span className="flex items-center gap-1 text-[10px] font-bold text-cyan-500 mb-0.5">
+            GSH
+            <Mic className="w-2.5 h-2.5" />
+            {!item.final && <span className="font-normal italic opacity-70">speaking…</span>}
+          </span>
+          {item.text}
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex justify-start">
+      <div
+        className={`max-w-[92%] px-4 py-3 text-xs leading-relaxed rounded-2xl rounded-bl-sm shadow-md border ${
+          item.isError
+            ? 'bg-rose-950/40 text-rose-200 border-rose-800/60'
+            : 'bg-gradient-to-br from-cyan-950/40 via-slate-900/90 to-slate-950 text-slate-200 border-cyan-800/40'
+        }`}
+      >
+        <div className="flex items-center justify-between gap-2 mb-2 pb-1.5 border-b border-cyan-900/30">
+          <div className="flex items-center gap-1.5">
+            <Bot className={`w-3.5 h-3.5 ${item.isError ? 'text-rose-400' : 'text-cyan-400'}`} />
+            <span
+              className={`text-[10px] font-bold tracking-wider uppercase ${
+                item.isError ? 'text-rose-400' : 'text-cyan-400'
+              }`}
+            >
+              GSH Agent
+            </span>
+          </div>
+          {item.tool_used && (
+            <span className="inline-flex items-center gap-1 text-[10px] font-mono px-2 py-0.5 rounded-full bg-cyan-950/90 text-cyan-300 border border-cyan-800/60">
+              <Wrench className="w-3 h-3 text-cyan-400" />
+              {item.tool_used}
+            </span>
+          )}
+        </div>
+        {item.isError ? (
+          <p className="text-rose-300 font-mono text-[11px]">{item.text}</p>
+        ) : (
+          <MarkdownContent content={item.text} />
+        )}
+      </div>
+    </div>
+  );
+}
+
+function ConversationItem({ item }) {
+  if (item.role === 'chart') {
+    return <BarChart title={item.chart.title} rows={item.chart.rows} unit={item.chart.unit} />;
+  }
+  if (item.role === 'user') return <UserBubble item={item} />;
+  return <AgentBubble item={item} />;
+}
+
+// ─── Voice plumbing (must render inside LiveKitRoom) ─────────────────────────
+
+/**
+ * Feeds the live room's charts and transcripts into the one shared
+ * conversation. It renders nothing: the bubbles are drawn by the same
+ * list that holds the typed messages, so a spoken answer and a typed one
+ * sit in a single thread.
+ */
+function VoiceStreamBridge({ onChart, onTranscript, onFinalise, onError }) {
   const room = useRoomContext();
-  const transcriptEndRef = useRef(null);
-  const inactivityTimerRef = useRef(null);
+  const { localParticipant } = useLocalParticipant();
+  const { error: agentError } = useVoiceAssistant();
 
   useEffect(() => {
     if (agentError) {
-      onError?.(`Voice agent error: ${agentError?.message || agentError}. Gemini quota or live connection may be unavailable.`);
+      onError?.(
+        `Voice agent error: ${agentError?.message || agentError}. The live model may be unavailable or out of quota.`
+      );
     }
   }, [agentError, onError]);
 
-  // Unified items list: { id, role: 'user' | 'agent' | 'chart', text, final, chart, time }
-  const [items, setItems] = useState([]);
-
-  const toggleMic = useCallback(async () => {
-    if (localParticipant) {
-      await localParticipant.setMicrophoneEnabled(!isMicrophoneEnabled);
-    }
-  }, [localParticipant, isMicrophoneEnabled]);
-
-  // 1. Data Channel: exclusively for real-time visual charts
   useDataChannel((msg) => {
     try {
-      const decoded = new TextDecoder().decode(msg.payload);
-      const data = JSON.parse(decoded);
-
-      if (data.type === 'chart') {
-        setItems((prev) => {
-          // Avoid duplicate chart cards if sent multiple times
-          const recentChart = prev.slice(-2).find((m) => m.role === 'chart' && m.chart?.title === data.title);
-          if (recentChart) return prev;
-          return [
-            ...prev,
-            {
-              id: `chart_${Date.now()}`,
-              role: 'chart',
-              chart: data,
-              time: Date.now(),
-            },
-          ];
-        });
-      }
+      const data = JSON.parse(new TextDecoder().decode(msg.payload));
+      if (data.type === 'chart') onChart(data);
     } catch {
       // not a json payload
     }
   });
 
-  // 2. Single LiveKit 2.x TextStream handler for speech chunks with in-place turn updates & noise filtering
   useEffect(() => {
     if (!room) return;
 
@@ -651,65 +668,15 @@ function VoiceTab({ onDisconnect, onError }) {
         for await (const chunk of stream) {
           accumulated += chunk;
           const cleanText = accumulated.trim();
-
-          // Noise filter: discard if text contains no alphanumeric characters (e.g. ".", "...", " ")
-          if (!/[a-zA-Z0-9]/.test(cleanText)) {
-            continue;
-          }
-
-          setItems((prev) => {
-            const list = [...prev];
-            const idx = list.findIndex((m) => m.id === streamId);
-
-            if (idx >= 0) {
-              list[idx] = { ...list[idx], text: cleanText, final: false };
-              return list;
-            }
-
-            // If the last message is from the same speaker and either not final or a continuation within 3s
-            const last = list[list.length - 1];
-            if (
-              last &&
-              last.role === role &&
-              (!last.final || (Date.now() - (last.time || 0) < 3000 && cleanText.startsWith(last.text)))
-            ) {
-              list[list.length - 1] = { ...last, id: streamId, text: cleanText, final: false };
-              return list;
-            }
-
-            // Deduplicate: avoid pushing identical text if already present in recent items
-            const isDup = list.slice(-2).some((m) => m.role === role && m.text === cleanText);
-            if (isDup) {
-              return list;
-            }
-
-            list.push({
-              id: streamId,
-              role,
-              text: cleanText,
-              final: false,
-              time: Date.now(),
-            });
-            return list;
-          });
+          // Drop filler the recogniser emits between words (".", "…").
+          if (!/[a-zA-Z0-9]/.test(cleanText)) continue;
+          onTranscript(streamId, role, cleanText);
         }
       } catch {
         // Stream aborted or closed
       }
 
-      const finalClean = accumulated.trim();
-      setItems((prev) => {
-        if (!/[a-zA-Z0-9]/.test(finalClean)) {
-          // Remove noise bubble if any was added
-          return prev.filter((m) => m.id !== streamId);
-        }
-        const list = [...prev];
-        const idx = list.findIndex((m) => m.id === streamId);
-        if (idx >= 0) {
-          list[idx] = { ...list[idx], text: finalClean, final: true };
-        }
-        return list;
-      });
+      onFinalise(streamId, accumulated.trim());
     };
 
     try {
@@ -721,98 +688,111 @@ function VoiceTab({ onDisconnect, onError }) {
     return () => {
       try {
         room.unregisterTextStreamHandler('lk.transcription');
-      } catch {}
+      } catch {
+        // Already gone with the room
+      }
     };
-  }, [room, localParticipant]);
+  }, [room, localParticipant, onTranscript, onFinalise]);
 
-  // Auto-disconnect on silence
-  useEffect(() => {
-    const active = state === 'speaking' || state === 'listening';
-    clearTimeout(inactivityTimerRef.current);
-    if (!active) {
-      inactivityTimerRef.current = setTimeout(onDisconnect, INACTIVITY_TIMEOUT_S * 1000);
+  return null;
+}
+
+/**
+ * The mic control and level meter, shown in the composer while a voice
+ * session is live.
+ */
+function LiveVoiceControls({ onIdleTimeout, lastActivityAt }) {
+  const { state, audioTrack } = useVoiceAssistant();
+  const connectionState = useConnectionState();
+  const { localParticipant, isMicrophoneEnabled } = useLocalParticipant();
+  const idleTimerRef = useRef(null);
+
+  const toggleMic = useCallback(async () => {
+    if (localParticipant) {
+      await localParticipant.setMicrophoneEnabled(!isMicrophoneEnabled);
     }
-    return () => clearTimeout(inactivityTimerRef.current);
-  }, [state, onDisconnect]);
+  }, [localParticipant, isMicrophoneEnabled]);
 
-  // Auto-scroll
+  // Hang up only after a real lull.
+  //
+  // 'thinking' used to count as idle, so a question that needed a slow
+  // tool call could have the session closed out from under it mid-answer
+  // -- and the reconnect that followed started a fresh agent session.
+  // Typing counts as activity too: lastActivityAt re-arms the timer.
   useEffect(() => {
-    transcriptEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [items]);
+    const busy = state === 'listening' || state === 'thinking' || state === 'speaking';
+    clearTimeout(idleTimerRef.current);
+    if (!busy) {
+      idleTimerRef.current = setTimeout(onIdleTimeout, INACTIVITY_TIMEOUT_S * 1000);
+    }
+    return () => clearTimeout(idleTimerRef.current);
+  }, [state, lastActivityAt, onIdleTimeout]);
 
   const isConnected = connectionState === ConnectionState.Connected;
+  const isMuted = !isMicrophoneEnabled;
 
   return (
-    <div className="flex-1 flex flex-col overflow-hidden bg-[#080e1a]">
-      <div className="flex justify-center pt-3 shrink-0">
-        <StartAudio
-          label="Tap to enable audio"
-          className="px-3 py-1 bg-cyan-600/80 hover:bg-cyan-600 text-white rounded-full text-[11px] font-semibold transition-colors"
-        />
-      </div>
-
-      <div className="shrink-0 px-8 pt-2">
-        <BarVisualizer state={state} trackRef={audioTrack} className="w-full h-8" />
-      </div>
-
-      <div className="flex-1 overflow-y-auto mx-4 my-3 rounded-2xl border border-slate-800/60 bg-slate-900/40 p-3 space-y-2.5 min-h-0">
-        {items.length === 0 ? (
-          <div className="flex flex-col items-center justify-center h-full gap-2.5 py-8 text-center">
-            <div className="w-9 h-9 rounded-full border border-slate-700 flex items-center justify-center">
-              <Mic className="w-4 h-4 text-slate-500" />
-            </div>
-            <p className="text-xs text-slate-500 max-w-[200px] leading-relaxed">
-              {isConnected
-                ? isMicrophoneEnabled
-                  ? 'Speak now. GSH will answer with voice and diagrams.'
-                  : 'Microphone is muted. Unmute below to speak.'
-                : 'Connecting to voice session…'}
-            </p>
-          </div>
-        ) : (
-          items.map((item) => {
-            if (item.role === 'chart') {
-              return <BarChart key={item.id} title={item.chart.title} rows={item.chart.rows} />;
-            }
-            const isUser = item.role === 'user';
-            return (
-              <div key={item.id} className={`flex ${isUser ? 'justify-end' : 'justify-start'}`}>
-                <div
-                  className={`max-w-[80%] px-3.5 py-2 text-xs leading-relaxed ${
-                    isUser
-                      ? 'bg-slate-700/80 text-slate-100 rounded-2xl rounded-br-sm'
-                      : 'bg-gradient-to-br from-cyan-900/50 to-slate-900/60 text-cyan-100 border border-cyan-800/30 rounded-2xl rounded-bl-sm'
-                  } ${!item.final ? 'opacity-80' : 'opacity-100'}`}
-                >
-                  <span className={`block text-[10px] font-bold mb-0.5 ${isUser ? 'text-slate-400' : 'text-cyan-500'}`}>
-                    {isUser ? 'You' : 'GSH'}
-                    {!item.final && <span className="ml-1 text-[9px] font-normal italic opacity-70">speaking…</span>}
-                  </span>
-                  {item.text}
-                </div>
-              </div>
-            );
-          })
+    <div className="flex items-center gap-2.5">
+      <button
+        type="button"
+        onClick={toggleMic}
+        disabled={!isConnected}
+        title={isMuted ? 'Microphone is muted — click to unmute' : 'Microphone is active — click to mute'}
+        aria-label={isMuted ? 'Unmute microphone' : 'Mute microphone'}
+        className={`relative flex items-center justify-center w-10 h-10 shrink-0 rounded-full border-2 transition-all duration-200 active:scale-95 cursor-pointer disabled:opacity-50 disabled:cursor-wait ${
+          isMuted
+            ? 'bg-slate-900 border-rose-500 text-rose-400 hover:bg-slate-800'
+            : state === 'speaking'
+              ? 'bg-violet-600 border-violet-400 text-white shadow-[0_0_18px_rgba(139,92,246,0.45)]'
+              : 'bg-cyan-600 border-cyan-400 text-white shadow-[0_0_18px_rgba(6,182,212,0.45)]'
+        }`}
+      >
+        {!isMuted && state === 'listening' && (
+          <span
+            className="absolute inset-0 rounded-full bg-cyan-500/30 animate-ping"
+            style={{ animationDuration: '1.4s' }}
+          />
         )}
-        <div ref={transcriptEndRef} />
+        {isMuted ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
+      </button>
+
+      <div className="flex-1 min-w-0">
+        <BarVisualizer state={state} trackRef={audioTrack} className="w-full h-5" />
+        <span className="block text-[10px] font-mono text-slate-500 truncate">
+          {!isConnected
+            ? 'Connecting…'
+            : isMuted
+              ? 'Mic muted — click to speak'
+              : state === 'speaking'
+                ? 'GSH speaking…'
+                : state === 'thinking'
+                  ? 'Checking the servers…'
+                  : 'Listening — speak now'}
+        </span>
       </div>
 
-      <div className="shrink-0 flex justify-center pb-8 pt-3">
-        <AnimatedMicButton
-          voiceState={state}
-          isMicrophoneEnabled={isMicrophoneEnabled}
-          onToggle={toggleMic}
-        />
-      </div>
+      <StartAudio
+        label="Enable audio"
+        type="button"
+        className="shrink-0 px-2.5 py-1 bg-cyan-600/80 hover:bg-cyan-600 text-white rounded-full text-[10px] font-semibold transition-colors"
+      />
     </div>
   );
 }
 
-// ─── Text Chat Tab ───────────────────────────────────────────────────────────
-function TextTab({ messages, isLoading, error, onSendQuery, onClearMessages }) {
-  const [input, setInput] = useState('');
+// ─── The one conversation: typed and spoken in a single thread ───────────────
+
+function Conversation({
+  items,
+  isLoading,
+  input,
+  onInputChange,
+  onSendQuery,
+  onClearItems,
+  voiceSlot,
+}) {
   const textareaRef = useRef(null);
-  const messagesEndRef = useRef(null);
+  const itemsEndRef = useRef(null);
 
   const resizeInput = useCallback(() => {
     const el = textareaRef.current;
@@ -826,14 +806,14 @@ function TextTab({ messages, isLoading, error, onSendQuery, onClearMessages }) {
   useEffect(resizeInput, [input, resizeInput]);
 
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages, isLoading]);
+    itemsEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [items, isLoading]);
 
   const handleSubmit = (e) => {
     e?.preventDefault();
     if (!input.trim() || isLoading) return;
     const text = input;
-    setInput('');
+    onInputChange('');
     onSendQuery(text);
   };
 
@@ -846,17 +826,17 @@ function TextTab({ messages, isLoading, error, onSendQuery, onClearMessages }) {
 
   return (
     <div className="flex-1 flex flex-col overflow-hidden bg-[#080e1a]">
-      {/* Messages area */}
       <div className="flex-1 overflow-y-auto mx-4 my-3 rounded-2xl border border-slate-800/60 bg-slate-900/40 p-3.5 space-y-3 min-h-0">
-        {messages.length === 0 ? (
+        {items.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-full gap-4 py-8 text-center">
             <div className="w-12 h-12 rounded-2xl bg-cyan-950/60 border border-cyan-800/40 flex items-center justify-center shadow-lg shadow-cyan-950/50">
               <Bot className="w-6 h-6 text-cyan-400" />
             </div>
-            <div className="max-w-[320px]">
+            <div className="max-w-[340px]">
               <h3 className="text-sm font-semibold text-slate-100 mb-1">GSH AI Assistant</h3>
               <p className="text-xs text-slate-400 leading-relaxed">
-                Ask about server health, average latency, online status, or recent anomaly events.
+                Type a question or tap the microphone and talk. Ask about server health,
+                latency, which server is performing best, or recent incidents.
               </p>
             </div>
             <div className="w-full max-w-[440px] space-y-2 pt-2">
@@ -880,50 +860,9 @@ function TextTab({ messages, isLoading, error, onSendQuery, onClearMessages }) {
           </div>
         ) : (
           <>
-            {messages.map((msg) => {
-              const isUser = msg.role === 'user';
-              if (isUser) {
-                return (
-                  <div key={msg.id} className="flex justify-end">
-                    <div className="max-w-[85%] px-3.5 py-2.5 text-xs leading-relaxed bg-slate-800/90 text-slate-100 border border-slate-700/60 rounded-2xl rounded-br-sm shadow-sm">
-                      <span className="block text-[10px] font-bold text-slate-400 mb-1">You</span>
-                      <p className="whitespace-pre-wrap">{msg.text}</p>
-                    </div>
-                  </div>
-                );
-              }
-              return (
-                <div key={msg.id} className="flex justify-start">
-                  <div
-                    className={`max-w-[92%] px-4 py-3 text-xs leading-relaxed rounded-2xl rounded-bl-sm shadow-md border ${
-                      msg.isError
-                        ? 'bg-rose-950/40 text-rose-200 border-rose-800/60'
-                        : 'bg-gradient-to-br from-cyan-950/40 via-slate-900/90 to-slate-950 text-slate-200 border-cyan-800/40'
-                    }`}
-                  >
-                    <div className="flex items-center justify-between gap-2 mb-2 pb-1.5 border-b border-cyan-900/30">
-                      <div className="flex items-center gap-1.5">
-                        <Bot className={`w-3.5 h-3.5 ${msg.isError ? 'text-rose-400' : 'text-cyan-400'}`} />
-                        <span className={`text-[10px] font-bold tracking-wider uppercase ${msg.isError ? 'text-rose-400' : 'text-cyan-400'}`}>
-                          GSH Agent
-                        </span>
-                      </div>
-                      {msg.tool_used && (
-                        <span className="inline-flex items-center gap-1 text-[10px] font-mono px-2 py-0.5 rounded-full bg-cyan-950/90 text-cyan-300 border border-cyan-800/60">
-                          <Wrench className="w-3 h-3 text-cyan-400" />
-                          {msg.tool_used}
-                        </span>
-                      )}
-                    </div>
-                    {msg.isError ? (
-                      <p className="text-rose-300 font-mono text-[11px]">{msg.text}</p>
-                    ) : (
-                      <MarkdownContent content={msg.text} />
-                    )}
-                  </div>
-                </div>
-              );
-            })}
+            {items.map((item) => (
+              <ConversationItem key={item.id} item={item} />
+            ))}
 
             {isLoading && (
               <div className="flex justify-start">
@@ -935,11 +874,10 @@ function TextTab({ messages, isLoading, error, onSendQuery, onClearMessages }) {
             )}
           </>
         )}
-        <div ref={messagesEndRef} />
+        <div ref={itemsEndRef} />
       </div>
 
-      {/* Suggested Quick Chips when chat is active */}
-      {messages.length > 0 && (
+      {items.length > 0 && (
         <div className="shrink-0 flex items-center gap-2 overflow-x-auto pb-1 scrollbar-none px-4 text-xs">
           {SUGGESTED_QUERIES.map((hint) => (
             <button
@@ -955,14 +893,18 @@ function TextTab({ messages, isLoading, error, onSendQuery, onClearMessages }) {
         </div>
       )}
 
-      {/* Input bar */}
-      <form onSubmit={handleSubmit} className="shrink-0 p-3 sm:p-4 border-t border-slate-800/80 bg-slate-950/80 backdrop-blur-md">
-        <div className="flex flex-col gap-2">
+      {/* The composer: a text box and a microphone, side by side, for the
+          one conversation above. The mic controls sit outside the <form>
+          on purpose -- LiveKit's own buttons (StartAudio) render without a
+          `type`, which inside a form defaults to submit, so enabling audio
+          would fire off whatever question was half-typed in the box. */}
+      <div className="shrink-0 flex flex-col gap-2.5 p-3 sm:p-4 border-t border-slate-800/80 bg-slate-950/80 backdrop-blur-md">
+        <form onSubmit={handleSubmit}>
           <div className="relative flex items-center">
             <textarea
               ref={textareaRef}
               value={input}
-              onChange={(e) => setInput(e.target.value)}
+              onChange={(e) => onInputChange(e.target.value)}
               onKeyDown={handleKeyDown}
               placeholder="Ask about servers, latency, recent incidents… (Enter to send)"
               rows={1}
@@ -978,34 +920,41 @@ function TextTab({ messages, isLoading, error, onSendQuery, onClearMessages }) {
               <span>Send</span>
             </button>
           </div>
-          <div className="flex items-center justify-between text-[10px] text-slate-500 font-mono px-1">
-            <span>Enter to send • Shift+Enter for new line</span>
-            {messages.length > 0 && (
-              <button
-                type="button"
-                onClick={onClearMessages}
-                className="flex items-center gap-1 text-slate-400 hover:text-rose-400 transition-colors cursor-pointer"
-              >
-                <RotateCcw className="w-3 h-3" />
-                Clear chat
-              </button>
-            )}
-          </div>
+        </form>
+
+        {voiceSlot}
+
+        <div className="flex items-center justify-between text-[10px] text-slate-500 font-mono px-1">
+          <span>Enter to send • Shift+Enter for new line</span>
+          {items.length > 0 && (
+            <button
+              type="button"
+              onClick={onClearItems}
+              className="flex items-center gap-1 text-slate-400 hover:text-rose-400 transition-colors cursor-pointer"
+            >
+              <RotateCcw className="w-3 h-3" />
+              Clear chat
+            </button>
+          )}
         </div>
-      </form>
+      </div>
     </div>
   );
 }
 
 // ─── Main Panel Container ────────────────────────────────────────────────────
 export function AskPanel({ isOpen, onOpen, onClose }) {
-  const [mode, setMode] = useState('text');
-  const [messages, setMessages] = useState([]);
+  // One list for the whole conversation. Typed questions, spoken
+  // questions, answers and charts all land here in the order they
+  // happened -- there is no separate text tab and voice tab to switch
+  // between, and nothing to lose when you change how you are asking.
+  const [items, setItems] = useState([]);
+  const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState(null);
   const [lkSession, setLkSession] = useState(null);
   const [lkConnecting, setLkConnecting] = useState(false);
   const [lkError, setLkError] = useState(null);
+  const [lastActivityAt, setLastActivityAt] = useState(Date.now());
 
   useEffect(() => {
     document.body.style.overflow = isOpen ? 'hidden' : '';
@@ -1014,7 +963,7 @@ export function AskPanel({ isOpen, onOpen, onClose }) {
     };
   }, [isOpen]);
 
-  const startVoice = async () => {
+  const startVoice = useCallback(async () => {
     setLkConnecting(true);
     setLkError(null);
     const { data, error: err } = await api.getLivekitToken();
@@ -1024,7 +973,8 @@ export function AskPanel({ isOpen, onOpen, onClose }) {
       return;
     }
     setLkSession({ token: data.token, url: data.url });
-  };
+    setLastActivityAt(Date.now());
+  }, []);
 
   const stopVoice = useCallback(() => {
     setLkSession(null);
@@ -1045,42 +995,147 @@ export function AskPanel({ isOpen, onOpen, onClose }) {
     return () => window.removeEventListener('keydown', handler);
   }, [isOpen, handleClose]);
 
+  // ── Voice → conversation ──────────────────────────────────────────────
+
+  const addChart = useCallback((data) => {
+    setItems((prev) => {
+      // The worker may republish a chart; don't stack duplicates.
+      const recent = prev.slice(-2).find((m) => m.role === 'chart' && m.chart?.title === data.title);
+      if (recent) return prev;
+      return [
+        ...prev,
+        {
+          id: `chart_${Date.now()}`,
+          role: 'chart',
+          chart: { title: data.title, rows: data.rows, unit: data.unit || 'ms' },
+          time: Date.now(),
+        },
+      ];
+    });
+  }, []);
+
+  const upsertTranscript = useCallback((streamId, role, text) => {
+    setItems((prev) => {
+      const list = [...prev];
+      const idx = list.findIndex((m) => m.id === streamId);
+      if (idx >= 0) {
+        list[idx] = { ...list[idx], text, final: false };
+        return list;
+      }
+
+      // A continuation of the speaker's current turn extends that bubble
+      // rather than starting another one.
+      const last = list[list.length - 1];
+      if (
+        last &&
+        last.viaVoice &&
+        last.role === role &&
+        (!last.final || (Date.now() - (last.time || 0) < 3000 && text.startsWith(last.text)))
+      ) {
+        list[list.length - 1] = { ...last, id: streamId, text, final: false };
+        return list;
+      }
+
+      const isDup = list.slice(-2).some((m) => m.role === role && m.text === text);
+      if (isDup) return list;
+
+      list.push({ id: streamId, role, text, viaVoice: true, final: false, time: Date.now() });
+      return list;
+    });
+  }, []);
+
+  const finaliseTranscript = useCallback((streamId, text) => {
+    setItems((prev) => {
+      // Nothing but punctuation came through: drop the bubble entirely.
+      if (!/[a-zA-Z0-9]/.test(text)) return prev.filter((m) => m.id !== streamId);
+      const list = [...prev];
+      const idx = list.findIndex((m) => m.id === streamId);
+      if (idx >= 0) list[idx] = { ...list[idx], text, final: true };
+      return list;
+    });
+    setLastActivityAt(Date.now());
+  }, []);
+
+  // ── Typed question → REST agent ───────────────────────────────────────
+
   const handleSendQuery = async (queryText) => {
     const q = queryText?.trim();
     if (!q || isLoading) return;
-    setError(null);
-    const userMsg = {
-      id: `u_${Date.now()}`,
-      role: 'user',
-      text: q,
-      time: Date.now(),
-    };
-    setMessages((prev) => [...prev, userMsg]);
+    setLastActivityAt(Date.now());
+    setItems((prev) => [
+      ...prev,
+      { id: `u_${Date.now()}`, role: 'user', text: q, final: true, time: Date.now() },
+    ]);
     setIsLoading(true);
 
     const { data, error: err } = await api.askAgent(q);
     setIsLoading(false);
+    setLastActivityAt(Date.now());
+
     if (err) {
-      setError(err);
-      const errorMsg = {
-        id: `err_${Date.now()}`,
-        role: 'agent',
-        text: `Error: ${err}`,
-        isError: true,
-        time: Date.now(),
-      };
-      setMessages((prev) => [...prev, errorMsg]);
-    } else if (data) {
-      const agentMsg = {
+      setItems((prev) => [
+        ...prev,
+        { id: `err_${Date.now()}`, role: 'agent', text: `Error: ${err}`, isError: true, final: true, time: Date.now() },
+      ]);
+      return;
+    }
+    if (!data) return;
+
+    const next = [
+      {
         id: `a_${Date.now()}`,
         role: 'agent',
         text: data.answer,
         tool_used: data.tool_used,
+        final: true,
         time: Date.now(),
-      };
-      setMessages((prev) => [...prev, agentMsg]);
+      },
+    ];
+    // A chart only comes back for questions that asked to compare or rank
+    // something, so when one is here it belongs under the answer.
+    if (data.chart?.rows?.length) {
+      next.push({
+        id: `chart_${Date.now()}`,
+        role: 'chart',
+        chart: {
+          title: data.chart.title,
+          rows: data.chart.rows,
+          unit: data.chart.unit || 'ms',
+        },
+        time: Date.now(),
+      });
     }
+    setItems((prev) => [...prev, ...next]);
   };
+
+  const conversation = (voiceSlot) => (
+    <Conversation
+      items={items}
+      isLoading={isLoading}
+      input={input}
+      onInputChange={setInput}
+      onSendQuery={handleSendQuery}
+      onClearItems={() => setItems([])}
+      voiceSlot={voiceSlot}
+    />
+  );
+
+  const idleMicRow = (
+    <div className="flex items-center gap-2.5">
+      <button
+        type="button"
+        onClick={startVoice}
+        disabled={lkConnecting}
+        aria-label="Start voice session"
+        className="flex items-center justify-center w-10 h-10 shrink-0 rounded-full border-2 border-slate-700 bg-slate-900 text-slate-300 hover:border-cyan-500 hover:text-cyan-300 transition-colors active:scale-95 cursor-pointer disabled:opacity-50 disabled:cursor-wait"
+      >
+        {lkConnecting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Mic className="w-4 h-4" />}
+      </button>
+      <span className="text-[10px] font-mono text-slate-500">
+        {lkConnecting ? 'Connecting to voice session…' : 'Tap the mic to talk instead of typing'}
+      </span>
+    </div>
+  );
 
   return createPortal(
     <>
@@ -1118,35 +1173,12 @@ export function AskPanel({ isOpen, onOpen, onClose }) {
             </span>
           </div>
           <div className="flex items-center gap-2">
-            <div className="flex rounded-lg border border-slate-800 bg-slate-900/80 p-0.5 text-xs font-medium">
-              <button
-                type="button"
-                onClick={() => setMode('text')}
-                className={`px-3 py-1.5 rounded-md flex items-center gap-1.5 transition-colors cursor-pointer ${
-                  mode === 'text'
-                    ? 'bg-cyan-600 text-white shadow-sm'
-                    : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/60'
-                }`}
-              >
-                <MessageSquare className="w-3.5 h-3.5" />
-                Text
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setMode('voice');
-                  if (!lkSession) startVoice();
-                }}
-                className={`px-3 py-1.5 rounded-md flex items-center gap-1.5 transition-colors cursor-pointer ${
-                  mode === 'voice'
-                    ? 'bg-cyan-600 text-white shadow-sm'
-                    : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/60'
-                }`}
-              >
-                <Mic className="w-3.5 h-3.5" />
-                Voice
-              </button>
-            </div>
+            {lkSession && (
+              <span className="hidden sm:inline-flex items-center gap-1.5 text-[10px] font-mono px-2 py-1 rounded-full bg-cyan-950/70 text-cyan-300 border border-cyan-800/60">
+                <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse" />
+                Voice live
+              </span>
+            )}
             <button
               type="button"
               onClick={handleClose}
@@ -1157,61 +1189,42 @@ export function AskPanel({ isOpen, onOpen, onClose }) {
           </div>
         </div>
 
+        {lkError && (
+          <div className="mx-4 mt-3 p-2.5 rounded-xl bg-rose-950/40 border border-rose-800 text-[11px] text-rose-300 flex items-start gap-2 shrink-0">
+            <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-px" />
+            <span>{lkError}</span>
+          </div>
+        )}
+
         <div className="flex-1 overflow-hidden flex flex-col min-h-0">
-          {mode === 'voice' ? (
-            <div className="flex-1 flex flex-col min-h-0">
-              {lkError && (
-                <div className="m-4 p-3 rounded-xl bg-rose-950/40 border border-rose-800 text-xs text-rose-300">
-                  {lkError}
-                </div>
+          {lkSession ? (
+            <LiveKitRoom
+              token={lkSession.token}
+              serverUrl={lkSession.url}
+              connect
+              audio
+              className="flex-1 flex flex-col min-h-0"
+              onDisconnected={() => {
+                stopVoice();
+              }}
+              onError={(err) => {
+                setLkError(`Voice connection error: ${err?.message || err}. Please try reconnecting.`);
+                stopVoice();
+              }}
+            >
+              <RoomAudioRenderer />
+              <VoiceStreamBridge
+                onChart={addChart}
+                onTranscript={upsertTranscript}
+                onFinalise={finaliseTranscript}
+                onError={setLkError}
+              />
+              {conversation(
+                <LiveVoiceControls onIdleTimeout={stopVoice} lastActivityAt={lastActivityAt} />
               )}
-              {lkConnecting && !lkSession && (
-                <div className="flex-1 flex flex-col items-center justify-center gap-3 text-slate-400">
-                  <Loader2 className="w-8 h-8 animate-spin text-cyan-400" />
-                  <p className="text-sm">Connecting to voice session…</p>
-                </div>
-              )}
-              {lkSession && (
-                <LiveKitRoom
-                  token={lkSession.token}
-                  serverUrl={lkSession.url}
-                  connect
-                  audio
-                  className="flex-1 flex flex-col min-h-0"
-                  onDisconnected={() => {
-                    setLkError('Voice session disconnected. You can start a new session below.');
-                    stopVoice();
-                  }}
-                  onError={(err) => {
-                    setLkError(`Voice connection error: ${err?.message || err}. Please try reconnecting.`);
-                    stopVoice();
-                  }}
-                >
-                  <RoomAudioRenderer />
-                  <VoiceTab onDisconnect={stopVoice} onError={(msg) => setLkError(msg)} />
-                </LiveKitRoom>
-              )}
-              {!lkSession && !lkConnecting && !lkError && (
-                <div className="flex-1 flex flex-col items-center justify-center gap-4">
-                  <button
-                    type="button"
-                    onClick={startVoice}
-                    className="flex items-center gap-2 px-6 py-3 rounded-full bg-cyan-600 hover:bg-cyan-500 text-white font-semibold shadow-lg shadow-cyan-950/50 transition-colors cursor-pointer"
-                  >
-                    <Mic className="w-5 h-5" />
-                    Start voice session
-                  </button>
-                </div>
-              )}
-            </div>
+            </LiveKitRoom>
           ) : (
-            <TextTab
-              messages={messages}
-              isLoading={isLoading}
-              error={error}
-              onSendQuery={handleSendQuery}
-              onClearMessages={() => setMessages([])}
-            />
+            conversation(idleMicRow)
           )}
         </div>
       </div>

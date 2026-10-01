@@ -49,10 +49,20 @@ Agent tools operate under two explicit autonomy tiers:
 ### Level P1 — Autonomous (Read & Diagnostic)
 May execute immediately without user confirmation:
 - Read server metrics, server status, latency anomalies, recent events
+- Read fleet-wide totals — servers, online/offline, players (`get_fleet_overview`)
 - Trigger on-demand live polling (`poll_server_now`)
-- Generate performance rankings and latency charts (`get_server_performance_chart`)
+- Rank servers by stability then latency (`get_server_ranking`)
 - Read daily summaries (`generate_daily_report`)
 - Publish test events to Redis Streams (never directly to PostgreSQL)
+
+Two rules keep the spoken and typed channels honest:
+
+- **One source of data.** The agent's tools live in `gateway-api/app/agent/tools.py`.
+  The voice worker is a separate service, so it reads them over HTTP
+  (`/api/v1/agent/tools/*`) rather than carrying its own copy of the
+  queries. Never answer a question by re-implementing a tool.
+- **A chart has to be the question.** Only `get_server_ranking` draws one.
+  A count gets a number; a comparison gets a chart.
 
 ### Level P2 — Controlled (Write & State Changes)
 Must ask for explicit user confirmation before executing:
@@ -60,6 +70,21 @@ Must ask for explicit user confirmation before executing:
 - Acknowledge incident events (`acknowledge_event`)
 - Re-label incident root causes (`relabel_event`)
 - Send on-demand daily reports to Telegram (`send_daily_report`)
+
+**Confirmation is not authorization.** A user who answers "yes" has
+confirmed; that does not make them an admin. Every P2 tool additionally
+requires an admin credential, checked in code before the tool runs:
+
+- Typed channel — `_require_admin` in `app/agent/router.py`, which reuses
+  `main.verify_api_key` (X-API-Key header or dashboard session cookie).
+  P1 stays open: asking what the servers are doing needs no login.
+- Voice channel — `require_admin` in `voice-agent/worker.py`, reading the
+  `gsh_role` attribute the gateway signs into the room token. The worker
+  holds a service-wide admin key, so without this any visitor who opened
+  voice chat would act with admin reach.
+
+A new write tool must be added to `_P2_TOOLS` as well as the registry;
+a test enforces that.
 
 ### Explain and Propose Workflow
 When diagnosing instability or incident events, the agent must explain the root cause, propose the appropriate P2 action (e.g. muting alerts for N minutes), and wait for user confirmation before executing.
