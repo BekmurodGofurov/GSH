@@ -29,12 +29,13 @@ To guarantee safety and prevent unintended state changes, tools operate under tw
 
 ### Level P1: Autonomous (Read & Diagnostic)
 May execute immediately without user confirmation:
+- Read fleet-wide totals — servers online, players connected (`get_fleet_overview`)
 - Query server metrics and status (`get_server_summary`)
+- Rank servers by stability, then latency (`get_server_ranking`)
 - Query recent incidents and anomaly history (`get_recent_events`)
 - Calculate latency buckets (`get_average_latency`)
 - Trigger immediate live health checks on an external game server (`poll_server_now`)
 - Read cached daily analytics summaries (`generate_daily_report`)
-- Build ranking and latency charts in voice sessions (`get_server_performance_chart`)
 
 ### Level P2: Controlled (Write & State Changes)
 Requires explanation, proposal, and explicit user confirmation before executing:
@@ -61,12 +62,13 @@ Audit logs are recorded in the service logger for compliance and debugging.
 
 | Tool | Autonomy | Arguments | Purpose |
 |---|---|---|---|
+| `get_fleet_overview` | P1 | none | Returns fleet totals in one row: servers, online/offline, players connected now, average ping. Used for every counting question so the model never sums a list itself. |
 | `get_server_summary` | P1 | none | Returns status, ping, player count, and region for all monitored servers. |
+| `get_server_ranking` | P1 | `hours` (int, 1-24, default 1) | Ranks servers over the window on stability first (crashes, uptime, ping jitter) then average ping, with the reasons behind each placing. Backs "which server is best" and is the only tool that draws a chart. |
 | `get_recent_events` | P1 | `limit` (int, 1-50, default 10) | Returns latest incident events from `server_events`. |
 | `get_average_latency` | P1 | `minutes` (int, 1-60), optional `server_id` (str) | Returns 1-minute bucketed ping and player averages. |
 | `poll_server_now` | P1 | `server_id` (str) | Queries the server immediately via `ingestion-service` bypassing the poll loop. |
 | `generate_daily_report` | P1 | none | Reads today's cached summary from `daily_reports`. |
-| `get_server_performance_chart` | P1 | none | Compiles performance rankings and publishes SVG charts in voice mode. |
 | `mute_server_alerts` | P2 | `server_id` (str), `minutes` (int, 1-10080), optional `reason` (str) | Adds a temporary mute record in `alert_silences` to suppress Telegram alerts. |
 | `acknowledge_event` | P2 | `event_id` (int > 0) | Sets `is_acknowledged = TRUE` on `server_events` to stop repeated notifications. |
 | `relabel_event` | P2 | `event_id` (int > 0), `root_cause` (enum) | Updates `root_cause` and sets `label_source = 'manual'`. |
