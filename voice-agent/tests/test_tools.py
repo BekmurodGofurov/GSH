@@ -467,6 +467,29 @@ async def test_unmute_with_nothing_muted():
 
 
 @pytest.mark.asyncio
+async def test_servers_overview_draws_the_chart_and_reads_only_counts(ctx, room):
+    payload = {
+        "total_servers": 23, "online_servers": 21, "offline_servers": 2,
+        "chart": {"title": "All 23 servers · 21 online · 2 offline", "order": "overview", "unit": "ms",
+                  "rows": [{"label": "S1", "value": 30, "status": "ONLINE"}]},
+    }
+    with gateway_returns(payload):
+        result = await worker.get_servers_overview(ctx)
+
+    assert room.charts[0]["order"] == "overview"
+    data = json.loads(result)
+    assert data["offline_servers"] == 2 and "chart" not in data
+
+
+@pytest.mark.asyncio
+async def test_end_conversation_tells_the_browser_to_hang_up(ctx, room):
+    result = await worker.end_conversation(ctx)
+
+    assert "Ending" in result
+    assert room.published_stop is True
+
+
+@pytest.mark.asyncio
 async def test_anyone_can_ask_which_servers_are_muted(ctx):
     """Reading mutes is P1: it needs no login, and the model needs it to unmute."""
     payload = {"muted_count": 1, "muted_servers": [{"server_id": "a:1", "server_name": "Seven"}]}

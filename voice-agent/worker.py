@@ -80,12 +80,17 @@ SYSTEM_PROMPT = (
     "list yourself."
     "\n- 'Which server is best / fastest / most stable?', comparing servers, or a request for "
     "a chart -> get_server_ranking."
+    "\n- 'Show me all servers', a fleet overview or the status of all servers -> "
+    "get_servers_overview. A status chart of every server appears on screen, so say only the "
+    "total, how many are online and how many are offline -- do not read the servers out."
     "\n- Questions about particular servers -> get_server_summary."
     "\n- Which servers are muted, or unmuting a server -> get_muted_servers first. Never say you "
     "cannot see mutes. Match what the user said ('the seven one') to the muted servers' names, "
     "then call unmute_server_alerts ONCE after they confirm: server_ids for the ones they named "
     "('the first three' = the first three of the list), all_servers=true for 'all of them'. "
     "Never unmute one server per turn."
+    "\nIf the user says stop, stop the chat, that's all or goodbye, call end_conversation at once "
+    "and do not keep talking."
     "\nSpeech recognition mishears 'servers' as 'sellers', 'cellars' or 'serves'. Treat those "
     "as 'servers'. If a question is still unclear, ask what the user meant instead of guessing "
     "a tool."
@@ -102,7 +107,7 @@ SYSTEM_PROMPT = (
     "is -- and say so explicitly when it wins despite a higher ping."
     "\n\nAutonomy Levels:"
     "\n- P1 (Read / Diagnose / Immediate): Run automatically without prior confirmation:"
-    " get_fleet_overview, get_server_ranking, get_server_summary, get_average_latency,"
+    " get_fleet_overview, get_servers_overview, get_server_ranking, get_server_summary, get_average_latency,"
     " get_recent_events, get_muted_servers, poll_server_now."
     "\n- P2 (Write / State Change / Controlled): Requires explanation and explicit user "
     "confirmation before executing: mute_server_alerts, unmute_server_alerts, acknowledge_event, send_daily_report."
@@ -214,6 +219,28 @@ async def get_fleet_overview(context: RunContext[WorkerCtx]) -> str:
 
 @function_tool(
     description=(
+        "Status of the whole fleet: total servers, how many are online and offline, and a status "
+        "chart of every server. Use it for 'show me all servers', 'fleet overview', 'status of "
+        "all servers'. The chart already lists them, so say only the three counts."
+    )
+)
+async def get_servers_overview(context: RunContext[WorkerCtx]) -> str:
+    data, err = await gateway_get("/api/v1/agent/tools/servers-overview")
+    if err:
+        return err
+    if not isinstance(data, dict):
+        return "The overview was not in the expected form."
+    chart = data.pop("chart", None)
+    if chart and chart.get("rows"):
+        await publish_chart(
+            context.userdata.room, "bar", chart["title"], chart["rows"],
+            chart.get("unit", "ms"), chart.get("order", "overview"),
+        )
+    return json.dumps(data, ensure_ascii=False)
+
+
+@function_tool(
+    description=(
         "Ranks servers over a time window by stability first (crashes, uptime, ping jitter) "
         "and then average ping, and explains why the top one wins. Use this for 'which server "
         "is best', for comparing servers, and when the user asks for a performance chart. "
@@ -296,6 +323,27 @@ async def get_muted_servers(context: RunContext[WorkerCtx]) -> str:
     if err:
         return err
     return json.dumps(data, ensure_ascii=False, default=str)
+
+
+@function_tool(
+    description=(
+        "Ends the voice conversation. Call it when the user says stop, stop the chat, that's all, "
+        "goodbye or otherwise asks you to be quiet and stop listening. Say at most a few words first."
+    )
+)
+async def end_conversation(context: RunContext[WorkerCtx]) -> str:
+    # The browser hangs up when it gets this: that silences the assistant
+    # mid-sentence and releases the microphone, which a spoken goodbye alone
+    # would not do.
+    room = context.userdata.room
+    if room and getattr(room, "local_participant", None):
+        try:
+            await room.local_participant.publish_data(
+                json.dumps({"type": "stop"}).encode(), reliable=True
+            )
+        except Exception as e:
+            logger.warning("Failed to publish stop signal: %s", e)
+    return "Ending the conversation now."
 
 
 @function_tool(
@@ -476,9 +524,11 @@ def build_agent(vad) -> Agent:
         vad=vad,
         tools=[
             get_fleet_overview,
+            get_servers_overview,
             get_server_ranking,
             get_server_summary,
             get_muted_servers,
+            end_conversation,
             get_average_latency,
             get_recent_events,
             poll_server_now,

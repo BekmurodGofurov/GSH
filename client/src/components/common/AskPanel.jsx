@@ -28,12 +28,18 @@ import {
 } from '@livekit/components-react';
 import { ConnectionState } from 'livekit-client';
 
+// Muting the mic must let go of it, not just silence it: a muted-but-open
+// track keeps Chrome's "this tab is using your microphone" indicator lit.
+// A module constant so the room does not see a new options object each render.
+const LIVEKIT_ROOM_OPTIONS = { publishDefaults: { stopMicTrackOnMute: true } };
+
 const MAX_INPUT_HEIGHT = 180;
 const INACTIVITY_TIMEOUT_S = 60;
 
 const SUGGESTED_QUERIES = [
   'How many players are online right now?',
   'Which server is performing best, and why?',
+  'Show me all servers.',
   'Which servers are currently offline?',
   'Show the 5 worst servers.',
   'Show me recent incident events.',
@@ -482,6 +488,7 @@ function shortLabel(label, max = 26) {
 function BarChart({ title, rows, unit = 'ms', order = 'best' }) {
   if (!rows || rows.length === 0) return null;
   const isWorst = order === 'worst';
+  const isOverview = order === 'overview';
   const max = Math.max(...rows.map((r) => r.value || 0), 1);
   const BAR_H = 20;
   const GAP = 8;
@@ -540,6 +547,7 @@ function BarChart({ title, rows, unit = 'ms', order = 'best' }) {
           const barW = max > 0 ? Math.round((row.value / max) * BAR_MAX_W) : 4;
           const w = Math.max(barW, 4);
           const star = Boolean(row.highlight);
+          const offline = row.status === 'OFFLINE';
           return (
             <g key={i}>
               <text
@@ -550,7 +558,9 @@ function BarChart({ title, rows, unit = 'ms', order = 'best' }) {
                 fontFamily="monospace"
                 fontWeight={star ? 700 : 400}
                 className={
-                  star
+                  offline
+                    ? 'fill-rose-600 dark:fill-rose-400'
+                    : star
                     ? accent === 'rose'
                       ? 'fill-rose-700 dark:fill-rose-300'
                       : 'fill-emerald-700 dark:fill-emerald-300'
@@ -560,7 +570,16 @@ function BarChart({ title, rows, unit = 'ms', order = 'best' }) {
                 {star ? '★ ' : ''}
                 {shortLabel(row.label)}
               </text>
-              {star ? (
+              {offline ? (
+                <rect
+                  x={LABEL_W}
+                  y={y + 3}
+                  width={4}
+                  height={BAR_H - 6}
+                  rx={2}
+                  className="fill-rose-500"
+                />
+              ) : star ? (
                 <rect
                   x={LABEL_W}
                   y={y + 1}
@@ -577,7 +596,11 @@ function BarChart({ title, rows, unit = 'ms', order = 'best' }) {
                   width={w}
                   height={BAR_H - 6}
                   rx={3}
-                  className="fill-cyan-500/70 dark:fill-cyan-400/70"
+                  className={
+                    isOverview
+                      ? 'fill-emerald-500/80 dark:fill-emerald-400/70'
+                      : 'fill-cyan-500/70 dark:fill-cyan-400/70'
+                  }
                 />
               )}
               <text
@@ -586,14 +609,15 @@ function BarChart({ title, rows, unit = 'ms', order = 'best' }) {
                 fontSize="9"
                 fontFamily="monospace"
                 fontWeight={star ? 700 : 400}
-                className="fill-slate-800 dark:fill-slate-200"
+                className={
+                  offline ? 'fill-rose-600 dark:fill-rose-400' : 'fill-slate-800 dark:fill-slate-200'
+                }
               >
-                {row.value}
-                {unit}
+                {offline ? 'OFFLINE' : `${row.value}${unit}`}
                 {/* The bar is latency, but the ranking turns on stability
                     too -- so the crash count rides along with the bar
                     rather than living only in the spoken answer. */}
-                {row.note && (
+                {row.note && !offline && (
                   <tspan className="fill-amber-600 dark:fill-amber-400" dx="6">
                     {row.note}
                   </tspan>
@@ -709,7 +733,7 @@ function ConversationItem({ item }) {
  * list that holds the typed messages, so a spoken answer and a typed one
  * sit in a single thread.
  */
-function VoiceStreamBridge({ onChart, onTranscript, onFinalise, onError }) {
+function VoiceStreamBridge({ onChart, onTranscript, onFinalise, onError, onStop }) {
   const room = useRoomContext();
   const { localParticipant } = useLocalParticipant();
   const { error: agentError } = useVoiceAssistant();
@@ -726,6 +750,9 @@ function VoiceStreamBridge({ onChart, onTranscript, onFinalise, onError }) {
     try {
       const data = JSON.parse(new TextDecoder().decode(msg.payload));
       if (data.type === 'chart') onChart(data);
+      // The assistant was told to stop ("stop the chat"): hang up, which
+      // cuts its speech off and releases the microphone.
+      if (data.type === 'stop') onStop?.();
     } catch {
       // not a json payload
     }
@@ -779,7 +806,7 @@ function VoiceStreamBridge({ onChart, onTranscript, onFinalise, onError }) {
  * The mic control and level meter, shown in the composer while a voice
  * session is live.
  */
-function LiveVoiceControls({ onIdleTimeout, lastActivityAt }) {
+function LiveVoiceControls({ onIdleTimeout, lastActivityAt, onEnd }) {
   const { state, audioTrack } = useVoiceAssistant();
   const connectionState = useConnectionState();
   const { localParticipant, isMicrophoneEnabled } = useLocalParticipant();
@@ -848,6 +875,16 @@ function LiveVoiceControls({ onIdleTimeout, lastActivityAt }) {
                   : 'Listening — speak now'}
         </span>
       </div>
+
+      <button
+        type="button"
+        onClick={onEnd}
+        aria-label="End voice session"
+        title="End the voice session and release the microphone"
+        className="shrink-0 px-2.5 py-1 rounded-full text-[10px] font-semibold border border-rose-400 text-rose-600 dark:border-rose-500/60 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 transition-colors cursor-pointer"
+      >
+        End
+      </button>
 
       <StartAudio
         label="Enable audio"
@@ -1282,6 +1319,7 @@ export function AskPanel({ isOpen, onOpen, onClose }) {
               serverUrl={lkSession.url}
               connect
               audio
+              options={LIVEKIT_ROOM_OPTIONS}
               className="flex-1 flex flex-col min-h-0"
               onDisconnected={() => {
                 stopVoice();
@@ -1297,9 +1335,10 @@ export function AskPanel({ isOpen, onOpen, onClose }) {
                 onTranscript={upsertTranscript}
                 onFinalise={finaliseTranscript}
                 onError={setLkError}
+                onStop={stopVoice}
               />
               {conversation(
-                <LiveVoiceControls onIdleTimeout={stopVoice} lastActivityAt={lastActivityAt} />
+                <LiveVoiceControls onIdleTimeout={stopVoice} lastActivityAt={lastActivityAt} onEnd={stopVoice} />
               )}
             </LiveKitRoom>
           ) : (
