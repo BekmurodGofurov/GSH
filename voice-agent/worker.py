@@ -81,9 +81,20 @@ SYSTEM_PROMPT = (
     "\n- 'Which server is best / fastest / most stable?', comparing servers, or a request for "
     "a chart -> get_server_ranking."
     "\n- Questions about particular servers -> get_server_summary."
+    "\n- Which servers are muted, or unmuting a server -> get_muted_servers first. Never say you "
+    "cannot see mutes. Match what the user said ('the seven one') to the muted servers' names, "
+    "then call unmute_server_alerts ONCE after they confirm: server_ids for the ones they named "
+    "('the first three' = the first three of the list), all_servers=true for 'all of them'. "
+    "Never unmute one server per turn."
     "\nSpeech recognition mishears 'servers' as 'sellers', 'cellars' or 'serves'. Treat those "
     "as 'servers'. If a question is still unclear, ask what the user meant instead of guessing "
     "a tool."
+    "\n\nHow many servers a ranking shows:"
+    "\nWith no number the ranking shows the best 5. Pass the user's number as count ('top 10', "
+    "'3 worst servers') and order='worst' for the worst ones. Report only the servers in `shown`. "
+    "If count_note is present, say it first -- e.g. 50 asked, only 23 can be ranked. A request "
+    "for 0 or a negative number is not valid: relay the note and list nothing."
+    "\nFor an overview or a list of all servers, name every server returned, never just a few."
     "\n\nAnswering about the best server:"
     "\nThe ranking tool sorts on stability first (crashes, uptime, ping jitter) and then average "
     "ping, so the best server is not always the one with the lowest ping. Name the winner and "
@@ -92,9 +103,9 @@ SYSTEM_PROMPT = (
     "\n\nAutonomy Levels:"
     "\n- P1 (Read / Diagnose / Immediate): Run automatically without prior confirmation:"
     " get_fleet_overview, get_server_ranking, get_server_summary, get_average_latency,"
-    " get_recent_events, poll_server_now."
+    " get_recent_events, get_muted_servers, poll_server_now."
     "\n- P2 (Write / State Change / Controlled): Requires explanation and explicit user "
-    "confirmation before executing: mute_server_alerts, acknowledge_event, send_daily_report."
+    "confirmation before executing: mute_server_alerts, unmute_server_alerts, acknowledge_event, send_daily_report."
     "\n\nExplain and Propose Workflow:"
     "\nWhen asked 'why is server X unstable?' or about server issues, check get_recent_events and metrics. "
     "Diagnose the cause (e.g. latency spike, player drop, crash) and PROPOSE a P2 action "
@@ -162,7 +173,9 @@ async def gateway_get(path: str, params: dict | None = None) -> tuple[dict | lis
         return None, "The monitoring API returned a response I could not read."
 
 
-async def publish_chart(room, chart_type: str, title: str, rows: list[dict], unit: str = "ms") -> None:
+async def publish_chart(
+    room, chart_type: str, title: str, rows: list[dict], unit: str = "ms", order: str = "best"
+) -> None:
     if not room or not getattr(room, "local_participant", None):
         logger.warning("publish_chart: Room or local_participant not ready")
         return
@@ -172,16 +185,13 @@ async def publish_chart(room, chart_type: str, title: str, rows: list[dict], uni
             "chartType": chart_type,
             "title": title,
             "unit": unit,
+            "order": order,
             "rows": rows,
         }).encode()
         await room.local_participant.publish_data(payload, reliable=True)
         logger.info("PUBLISHED CHART: title='%s' rows=%d", title, len(rows))
     except Exception as e:
         logger.warning("Failed to publish chart data: %s", e)
-
-
-# How many bars fit in the panel before the labels collide.
-CHART_MAX_ROWS = 10
 
 
 # ─── P1 Tools (Autonomous / Read) ─────────────────────────────────────────────
@@ -208,40 +218,37 @@ async def get_fleet_overview(context: RunContext[WorkerCtx]) -> str:
         "and then average ping, and explains why the top one wins. Use this for 'which server "
         "is best', for comparing servers, and when the user asks for a performance chart. "
         "Do not answer 'best server' from get_server_summary -- that holds a single momentary "
-        "ping sample per server."
+        "ping sample per server. Pass count when the user names a number ('top 10', '3 worst'), "
+        "and order='worst' for the worst servers; with no number it shows the best 5."
     )
 )
-async def get_server_ranking(context: RunContext[WorkerCtx], hours: int = 1) -> str:
+async def get_server_ranking(
+    context: RunContext[WorkerCtx], hours: int = 1, count: int | None = None, order: str = "best"
+) -> str:
     hours = max(1, min(int(hours or 1), 24))
-    data, err = await gateway_get("/api/v1/agent/tools/server-ranking", {"hours": hours})
+    params = {"hours": hours, "order": "worst" if order == "worst" else "best"}
+    if count is not None:
+        params["count"] = int(count)
+    data, err = await gateway_get("/api/v1/agent/tools/server-ranking", params)
     if err:
         return err
     if not isinstance(data, dict):
         return "The ranking data was not in the expected form."
 
-    ranked = data.get("ranked") or []
-    if not ranked:
+    if not data.get("ranked"):
         return "No server reported enough health checks in that window to rank."
 
-    # A ranking is a comparison, so a chart earns its place here -- and
-    # the bars are the same averages the spoken answer is built from, so
-    # the two cannot disagree.
-    if len(ranked) > 1:
-        rows = [
-            {
-                "label": (r.get("server_name") or r.get("server_id", ""))[:28],
-                "value": r.get("avg_ping") or 0,
-                "status": "ONLINE",
-                "note": f"{r.get('crash_count') or 0} crash" if r.get("crash_count") else None,
-            }
-            for r in ranked[:CHART_MAX_ROWS]
-        ]
-        window = f"{hours}h" if hours != 1 else "1h"
+    # The gateway builds the chart from the same `shown` rows the answer is
+    # read from, so the bars and the spoken numbers cannot disagree.
+    chart = data.pop("chart", None)
+    if chart and chart.get("rows"):
         await publish_chart(
             context.userdata.room,
             "bar",
-            f"Average ping over {window} — best first",
-            rows,
+            chart["title"],
+            chart["rows"],
+            chart.get("unit", "ms"),
+            chart.get("order", "best"),
         )
 
     return json.dumps(data, ensure_ascii=False)
@@ -270,10 +277,25 @@ async def get_server_summary(context: RunContext[WorkerCtx]) -> str:
             "ping_ms": s.get("ping_ms"),
             "players": s.get("player_count"),
             "max_players": s.get("max_players"),
+            "alerts_muted_until": s.get("muted_until"),
         }
         for s in data
     ]
     return json.dumps(compact, ensure_ascii=False)
+
+
+@function_tool(
+    description=(
+        "Lists the servers whose alerts are muted right now, with when each mute ends. Use it "
+        "for 'which servers are muted?' and always before unmute_server_alerts, to find the exact "
+        "server_id the user means by matching their words to the server names."
+    )
+)
+async def get_muted_servers(context: RunContext[WorkerCtx]) -> str:
+    data, err = await gateway_get("/api/v1/agent/tools/muted-servers")
+    if err:
+        return err
+    return json.dumps(data, ensure_ascii=False, default=str)
 
 
 @function_tool(
@@ -349,6 +371,41 @@ async def mute_server_alerts(context: RunContext[WorkerCtx], server_id: str, min
 
 
 @function_tool(
+    description=(
+        "[P2 action - requires user confirmation] Cancels alert mutes so Telegram alerts resume. "
+        "One call handles any number of servers: pass server_ids for several ('the first three'), "
+        "or all_servers=true for everything. Never unmute one server per turn."
+    )
+)
+async def unmute_server_alerts(
+    context: RunContext[WorkerCtx], server_ids: list[str] | None = None, all_servers: bool = False
+) -> str:
+    refusal = require_admin(context, "UNMUTE_ALERTS")
+    if refusal:
+        return refusal
+    if not server_ids and not all_servers:
+        return "Tell me which servers to unmute, or say all of them."
+    headers = {"X-API-Key": ADMIN_API_KEY} if ADMIN_API_KEY else {}
+    async with httpx.AsyncClient(timeout=8.0) as client:
+        try:
+            resp = await client.post(
+                f"{GATEWAY_URL}/api/v1/alerts/unmute",
+                json={"server_ids": server_ids, "all_servers": bool(all_servers)},
+                headers=headers,
+            )
+            if resp.status_code == 200:
+                data = resp.json()
+                unmuted = data.get("unmuted") or []
+                audit_log("UNMUTE_ALERTS", ",".join(unmuted) or "-", f"Mute cancelled ({len(unmuted)})")
+                return f"Alerts are on again for {len(unmuted)} server(s)."
+            if resp.status_code == 404:
+                return "None of those servers has an active mute."
+            return f"Failed to unmute: HTTP {resp.status_code} {resp.text}"
+        except Exception as e:
+            return f"Error unmuting alerts: {e}"
+
+
+@function_tool(
     description="[P2 action - requires user confirmation] Marks an incident event as acknowledged so repeated alerts stop."
 )
 async def acknowledge_event(context: RunContext[WorkerCtx], event_id: int) -> str:
@@ -421,10 +478,12 @@ def build_agent(vad) -> Agent:
             get_fleet_overview,
             get_server_ranking,
             get_server_summary,
+            get_muted_servers,
             get_average_latency,
             get_recent_events,
             poll_server_now,
             mute_server_alerts,
+            unmute_server_alerts,
             acknowledge_event,
             send_daily_report,
         ],

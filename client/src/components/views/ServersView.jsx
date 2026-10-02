@@ -12,6 +12,7 @@ import {
 import { Card, CardHeader, CardTitle, CardContent } from '../common/Card';
 import { Badge } from '../common/Badge';
 import { Button } from '../common/Button';
+import { MutedIndicator } from '../common/MutedIndicator';
 import { ServerGrid } from '../dashboard/ServerGrid';
 import { Pagination } from '../common/Pagination';
 import {
@@ -254,6 +255,7 @@ export function ServersView({
                         <Badge variant={isOnline ? 'emerald' : 'rose'} dot size="sm">
                           {isOnline ? 'ONLINE' : 'OFFLINE'}
                         </Badge>
+                        <MutedIndicator server={s} className="ml-2" />
                       </td>
                       <td className="p-3.5">
                         <div className="text-slate-800 dark:text-slate-200 font-semibold">

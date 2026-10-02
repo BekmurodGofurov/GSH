@@ -24,11 +24,13 @@ logging.basicConfig(
 # Agent harness router — mounted at /api/v1/agent/ask
 # Import is deferred here; the module validates AGENT_LLM_API_KEY at load time.
 from app.agent import router as agent_module
+from app.agent import tools as agent_tools
+from app.agent.schemas import UnmuteAlertsRequest
 
 # Support standalone and container imports for shared_schemas
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from shared_schemas.models import ServerMetric
+from shared_schemas.models import ServerMetric, ProbeRequest
 
 # SQL constants shared with the agent tools (see queries.py for why they
 # live outside this module).
@@ -428,6 +430,14 @@ async def mute_server_alerts(server_id: str, body: MuteRequest, api_key: str = D
         )
     return {"status": "muted", "server_id": server_id, "muted_until": row["muted_until"].isoformat(), "silence_id": row["id"]}
 
+@app.post("/api/v1/alerts/unmute")
+async def unmute_many_alerts(body: UnmuteAlertsRequest, api_key: str = Depends(verify_api_key)):
+    """Cancel active mutes for several servers, or all of them, in one call."""
+    return await agent_tools.unmute_server_alerts(
+        get_db_pool(), server_id=body.server_id, server_ids=body.server_ids,
+        all_servers=body.all_servers,
+    )
+
 @app.post("/api/v1/servers/{server_id:path}/unmute")
 async def unmute_server_alerts(server_id: str, api_key: str = Depends(verify_api_key)):
     """Cancel any active mute for a server."""
@@ -459,6 +469,22 @@ async def poll_server_now(server_id: str, api_key: str = Depends(verify_api_key)
             raise HTTPException(status_code=503, detail=f"Ingestion service unreachable: {exc}")
     if resp.status_code == 404:
         raise HTTPException(status_code=404, detail="Server not found")
+    if resp.status_code != 200:
+        raise HTTPException(status_code=502, detail="Unexpected response from ingestion-service")
+    return resp.json()
+
+# ---------------------------------------------------------------------------
+# One-off probe of any address (admin console, proxied to ingestion-service)
+# ---------------------------------------------------------------------------
+
+@app.post("/api/v1/probe")
+async def probe_address(body: ProbeRequest, api_key: str = Depends(verify_api_key)):
+    """Ask one address for ping, players and capacity. Nothing is stored."""
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        try:
+            resp = await client.post(f"{_INGESTION_URL}/api/v1/probe", json=body.model_dump())
+        except httpx.RequestError as exc:
+            raise HTTPException(status_code=503, detail=f"Ingestion service unreachable: {exc}")
     if resp.status_code != 200:
         raise HTTPException(status_code=502, detail="Unexpected response from ingestion-service")
     return resp.json()

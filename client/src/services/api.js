@@ -191,6 +191,17 @@ export const api = {
     return fetchSafe(`/api/v1/servers/${encodedId}/poll`, { method: 'POST', timeout: 10000 });
   },
 
+  // One-off look at any address: ping, players, capacity. Stores nothing.
+  async probeAddress(address) {
+    return fetchSafe('/api/v1/probe', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ address }),
+      timeout: 12000,
+      bypassCircuit: true,
+    });
+  },
+
   async getDailyReport() {
     return fetchSafe('/api/v1/reports/daily', { method: 'POST' });
   },

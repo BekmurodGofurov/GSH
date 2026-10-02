@@ -9,6 +9,7 @@ import {
 import { Card } from '../common/Card';
 import { Badge } from '../common/Badge';
 import { Button } from '../common/Button';
+import { MutedIndicator } from '../common/MutedIndicator';
 import {
   formatPing,
   getPingBadgeColor,
@@ -58,6 +59,7 @@ export function ServerCard({
             >
               {isOnline ? 'ONLINE' : isNoResponse ? 'NO RESPONSE' : 'OFFLINE'}
             </Badge>
+            <MutedIndicator server={server} />
             <span className="text-[11px] font-mono text-slate-600 dark:text-slate-400 flex items-center gap-1 bg-slate-100 dark:bg-slate-950/60 px-2 py-0.5 rounded border border-slate-200 dark:border-slate-800 font-medium">
               <MapPin className="w-3 h-3 text-cyan-600 dark:text-cyan-400" />
               {server.region}

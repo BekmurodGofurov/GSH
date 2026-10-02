@@ -122,3 +122,54 @@ async def test_ingest_metric_fails_loudly_when_the_pool_is_missing(no_db, client
     # gateway-api does. This pins the current behaviour so a change is visible.
     with pytest.raises(RuntimeError, match="not been initialized"):
         await client.post("/api/v1/ingest/metric", json=VALID_METRIC)
+
+
+# --- probe ----------------------------------------------------------------
+
+async def test_probe_reports_what_the_server_says(client, monkeypatch):
+    import main
+
+    async def fake_probe(address):
+        return {"address": address, "reachable": True, "ping_ms": 41.2,
+                "player_count": 12, "max_players": 24, "server_name": "X", "map": "de_dust2"}
+
+    monkeypatch.setattr(main, "probe_address", fake_probe)
+
+    response = await client.post("/api/v1/probe", json={"address": "1.2.3.4"})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["address"] == "1.2.3.4:27015"
+    assert body["player_count"] == 12 and body["max_players"] == 24
+
+
+async def test_probe_reports_an_unreachable_server_without_erroring(client, monkeypatch):
+    import main
+
+    async def fake_probe(address):
+        return {"address": address, "reachable": False}
+
+    monkeypatch.setattr(main, "probe_address", fake_probe)
+
+    response = await client.post("/api/v1/probe", json={"address": "1.2.3.4:27015"})
+
+    assert response.status_code == 200
+    assert response.json()["reachable"] is False
+
+
+async def test_probe_rejects_a_bad_address(client):
+    response = await client.post("/api/v1/probe", json={"address": "not an address"})
+
+    assert response.status_code == 422
+
+
+async def test_probe_writes_nothing_to_the_database(db, client, monkeypatch):
+    import main
+
+    async def fake_probe(address):
+        return {"address": address, "reachable": False}
+
+    monkeypatch.setattr(main, "probe_address", fake_probe)
+    await client.post("/api/v1/probe", json={"address": "1.2.3.4"})
+
+    assert db.queries == []

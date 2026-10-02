@@ -10,8 +10,8 @@ from fastapi.middleware.cors import CORSMiddleware
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from db import init_db, close_db, get_db_pool
-from shared_schemas.models import MetricPayload, EventPayload
-from poller import start_polling_loop, init_redis, close_redis, poll_single_server
+from shared_schemas.models import MetricPayload, EventPayload, ProbeRequest
+from poller import start_polling_loop, init_redis, close_redis, poll_single_server, probe_address
 
 poller_task = None
 
@@ -84,6 +84,11 @@ async def poll_server_now(server_id: str):
         raise HTTPException(status_code=404, detail=f"Server '{server_id}' not found")
     result = await poll_single_server(dict(row))
     return result
+
+@app.post("/api/v1/probe")
+async def probe(data: ProbeRequest):
+    """Query an arbitrary address once. Nothing is stored."""
+    return await probe_address(data.address)
 
 
 if __name__ == "__main__":

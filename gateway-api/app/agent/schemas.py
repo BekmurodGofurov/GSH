@@ -1,5 +1,5 @@
-from pydantic import BaseModel, Field
-from typing import Literal
+from pydantic import BaseModel, Field, model_validator
+from typing import Annotated, Literal
 
 # What the browser sends to POST /api/v1/agent/ask
 
@@ -16,6 +16,9 @@ class ChartRow(BaseModel):
     value: float
     status: str | None = None
     note: str | None = None
+    # The server the chart is about -- the best one, or the worst one when
+    # the question asked for the worst. The panel draws it apart from the rest.
+    highlight: bool = False
 
 
 class ChartPayload(BaseModel):
@@ -27,6 +30,7 @@ class ChartPayload(BaseModel):
     """
     chartType: Literal["bar"] = "bar"
     title: str
+    order: Literal["best", "worst"] = "best"
     unit: str = "ms"
     rows: list[ChartRow]
 
@@ -56,6 +60,11 @@ class RankingQuery(BaseModel):
     # A day is the longest window worth ranking on: beyond that a server
     # that was fixed this morning still carries last night's crashes.
     hours: int = Field(default=1, ge=1, le=24)
+    # How many servers the user asked to see. Deliberately unbounded: a
+    # request for 0, -3 or 50 must reach the tool so it can explain itself
+    # ("there are only 23") instead of failing validation with a bare 422.
+    count: int | None = None
+    order: Literal["best", "worst"] = "best"
 
 
 class RelabelRequest(BaseModel):
@@ -84,6 +93,21 @@ class MuteAlertsRequest(BaseModel):
     server_id: str = Field(..., min_length=1, max_length=100)
     minutes: int = Field(..., ge=1, le=10080)
     reason: str | None = Field(default=None, max_length=500)
+
+
+class UnmuteAlertsRequest(BaseModel):
+    """Input for unmute_server_alerts: one server, a list, or everything."""
+    server_id: str | None = Field(default=None, min_length=1, max_length=100)
+    server_ids: list[Annotated[str, Field(min_length=1, max_length=100)]] | None = Field(
+        default=None, max_length=100
+    )
+    all_servers: bool = False
+
+    @model_validator(mode="after")
+    def _needs_a_target(self):
+        if not (self.server_id or self.server_ids or self.all_servers):
+            raise ValueError("Give server_id, server_ids, or all_servers=true")
+        return self
 
 
 class PollRequest(BaseModel):

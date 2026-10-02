@@ -10,6 +10,7 @@ from fastapi import HTTPException
 from queries import (
     FLEET_OVERVIEW_QUERY,
     LATEST_SERVERS_QUERY,
+    MUTED_SERVERS_QUERY,
     SERVER_RANKING_QUERY,
 )
 
@@ -30,6 +31,9 @@ _CRASH_PENALTY = 40.0       # per OFFLINE/CRASH event in the window
 _ANOMALY_PENALTY = 8.0      # per other incident (high ping, player drop…)
 _DOWNTIME_PENALTY = 3.0     # per percentage point of missed polls
 _JITTER_PENALTY = 2.0       # per ms of ping standard deviation
+
+# How many servers a ranking shows when the user did not say.
+DEFAULT_RANKING_COUNT = 5
 
 # READ tools
 
@@ -107,8 +111,53 @@ def _describe(row: dict, hours: int) -> list[str]:
     return reasons
 
 
-async def get_server_ranking(db_pool, hours: int = 1) -> dict:
+def _select_shown(ranked: list[dict], count: int | None, order: str) -> dict:
+    """Pick the servers to show for a "top N" / "worst N" request.
+
+    Returns the rows (best-first for "best", worst-first for "worst") and a
+    plain-language note whenever the request could not be met exactly --
+    asking for 50 of 23 servers, or for 0, must be answered with the real
+    limit rather than quietly showing something else.
+    """
+    available = len(ranked)
+    requested = DEFAULT_RANKING_COUNT if count is None else count
+
+    if requested < 1:
+        return {
+            "shown": [],
+            "requested_count": requested,
+            "available_count": available,
+            "count_note": (
+                f"{requested} is not a valid number of servers to show. "
+                f"Ask for at least 1; {available} server(s) can be ranked."
+            ),
+        }
+
+    shown_count = min(requested, available)
+    rows = ranked[:shown_count] if order == "best" else ranked[::-1][:shown_count]
+
+    note = None
+    if requested > available:
+        note = (
+            f"Only {available} server(s) can be ranked right now, so showing "
+            f"all {available} instead of {requested}."
+        )
+    return {
+        "shown": rows,
+        "requested_count": requested,
+        "available_count": available,
+        "count_note": note,
+    }
+
+
+async def get_server_ranking(
+    db_pool, hours: int = 1, count: int | None = None, order: str = "best"
+) -> dict:
     """Rank servers over the last `hours` by stability first, then latency.
+
+    `count` and `order` choose what is shown ("top 3", "5 worst"); the
+    default is the best five. `ranked` always holds every eligible server
+    so rank numbers stay global; `shown` is the slice the user asked for.
 
     Returns every eligible server with the numbers behind its placing
     (average ping, jitter, crash count, uptime) and a sentence explaining
@@ -152,7 +201,9 @@ async def get_server_ranking(db_pool, hours: int = 1) -> dict:
 
     result = {
         "window_hours": hours,
+        "order": order,
         "ranked": ranked,
+        **_select_shown(ranked, count, order),
         "excluded": excluded,
         "ranked_by": (
             "stability first (crashes, uptime, ping jitter), then average ping. "
@@ -195,6 +246,18 @@ def _compare(best: dict, runner_up: dict, hours: int) -> str:
         f"{best['server_name']} leads on both latency ({best_ping}ms vs {next_ping}ms) "
         f"and stability over {window}."
     )
+
+
+async def get_muted_servers(db_pool) -> dict:
+    """List the servers whose alerts are muted right now, and until when."""
+    async with db_pool.acquire() as conn:
+        rows = await conn.fetch(MUTED_SERVERS_QUERY)
+    muted = [dict(r) for r in rows]
+    return {
+        "muted_count": len(muted),
+        "muted_servers": muted,
+        "note": None if muted else "No server has its alerts muted right now.",
+    }
 
 
 async def get_recent_events(db_pool, limit: int = 10) -> list[dict]:
@@ -328,6 +391,60 @@ async def mute_server_alerts(db_pool, server_id: str, minutes: int, reason: str 
     }
 
 
+async def unmute_server_alerts(
+    db_pool,
+    server_id: str | None = None,
+    server_ids: list[str] | None = None,
+    all_servers: bool = False,
+) -> dict:
+    """Cancel active alert silences so alerts resume: one server, several, or all.
+
+    A single call covers "unmute these three" and "unmute everything", so the
+    agent no longer has to walk the list one server per confirmation.
+    Servers that were not muted are reported back rather than treated as an
+    error, unless nothing at all was unmuted.
+    """
+    # The silence rows are ended (muted_until = now), not deleted, so the
+    # mute history survives. Targets are bound as one array parameter.
+    if all_servers:
+        async with db_pool.acquire() as conn:
+            rows = await conn.fetch(
+                "UPDATE alert_silences SET muted_until = NOW() "
+                "WHERE muted_until > NOW() RETURNING server_id;"
+            )
+        unmuted = sorted({r["server_id"] for r in rows})
+        requested = unmuted
+    else:
+        requested = list(dict.fromkeys([*(server_ids or []), *([server_id] if server_id else [])]))
+        if not requested:
+            raise HTTPException(
+                status_code=422,
+                detail="Give at least one server_id, or set all_servers to true.",
+            )
+        async with db_pool.acquire() as conn:
+            rows = await conn.fetch(
+                "UPDATE alert_silences SET muted_until = NOW() "
+                "WHERE server_id = ANY($1::varchar[]) AND muted_until > NOW() "
+                "RETURNING server_id;",
+                requested,
+            )
+        unmuted = sorted({r["server_id"] for r in rows})
+
+    if not unmuted:
+        raise HTTPException(
+            status_code=404,
+            detail="No active mute found for the requested server(s)."
+            if not all_servers
+            else "No server is muted right now.",
+        )
+    return {
+        "status": "unmuted",
+        "unmuted": unmuted,
+        "unmuted_count": len(unmuted),
+        "not_muted": [sid for sid in requested if sid not in unmuted],
+    }
+
+
 async def poll_server_now(db_pool, server_id: str) -> dict:
     """Immediately fetch fresh metrics for a server without waiting for the polling loop."""
     import httpx, os
@@ -361,4 +478,4 @@ async def generate_daily_report(db_pool) -> dict:
         "report_date": today.isoformat(),
         "report_text": row["report_text"],
         "json_data": _json.loads(row["json_data"]) if row["json_data"] else None,
-    }
+    }

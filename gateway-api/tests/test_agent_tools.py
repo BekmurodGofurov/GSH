@@ -268,6 +268,145 @@ async def test_acknowledge_event_db_failure():
 
 
 # ══════════════════════════════════════════════════════
+# get_muted_servers
+# ══════════════════════════════════════════════════════
+
+@pytest.mark.asyncio
+async def test_get_muted_servers_lists_active_mutes():
+    pool, _ = make_pool(fetch_result=[
+        {"server_id": "a:1", "server_name": "Seven", "region": "Warsaw",
+         "muted_until": None, "muted_by": "admin", "reason": "maintenance"},
+    ])
+
+    result = await tools.get_muted_servers(pool)
+
+    assert result["muted_count"] == 1
+    assert result["muted_servers"][0]["server_name"] == "Seven"
+    assert result["note"] is None
+
+
+@pytest.mark.asyncio
+async def test_get_muted_servers_when_none_are_muted():
+    pool, _ = make_pool(fetch_result=[])
+
+    result = await tools.get_muted_servers(pool)
+
+    assert result["muted_count"] == 0
+    assert "No server" in result["note"]
+
+
+@pytest.mark.asyncio
+async def test_get_muted_servers_db_failure():
+    pool, _ = make_pool(error=RuntimeError("db down"))
+
+    with pytest.raises(RuntimeError):
+        await tools.get_muted_servers(pool)
+
+
+@pytest.mark.asyncio
+async def test_muted_servers_endpoint(client, db):
+    db._fetch_result = [{"server_id": "a:1", "server_name": "Seven", "region": "W",
+                         "muted_until": None, "muted_by": "admin", "reason": None}]
+
+    response = await client.get("/api/v1/agent/tools/muted-servers")
+
+    assert response.status_code == 200
+    assert response.json()["muted_count"] == 1
+
+
+# ══════════════════════════════════════════════════════
+# unmute_server_alerts
+# ══════════════════════════════════════════════════════
+
+@pytest.mark.asyncio
+async def test_unmute_server_alerts_success():
+    pool, _ = make_pool(fetch_result=[{"server_id": "1.2.3.4:27015"}])
+
+    result = await tools.unmute_server_alerts(pool, server_id="1.2.3.4:27015")
+
+    assert result["status"] == "unmuted"
+    assert result["unmuted"] == ["1.2.3.4:27015"]
+
+
+@pytest.mark.asyncio
+async def test_unmute_several_servers_in_one_call():
+    """"Unmute the first three" is one tool call, not three confirmations."""
+    pool, conn = make_pool(fetch_result=[{"server_id": "a:1"}, {"server_id": "b:1"}])
+
+    result = await tools.unmute_server_alerts(pool, server_ids=["a:1", "b:1", "c:1"])
+
+    assert result["unmuted"] == ["a:1", "b:1"]
+    assert result["unmuted_count"] == 2
+    # c:1 was not muted: reported back, not an error.
+    assert result["not_muted"] == ["c:1"]
+
+
+@pytest.mark.asyncio
+async def test_unmute_all_servers_at_once():
+    pool, _ = make_pool(fetch_result=[{"server_id": f"s{i}:1"} for i in range(7)])
+
+    result = await tools.unmute_server_alerts(pool, all_servers=True)
+
+    assert result["unmuted_count"] == 7
+    assert result["not_muted"] == []
+
+
+def test_unmute_server_alerts_invalid_input():
+    with pytest.raises(ValidationError):
+        schemas.UnmuteAlertsRequest()
+    with pytest.raises(ValidationError):
+        schemas.UnmuteAlertsRequest(server_id="")
+    with pytest.raises(ValidationError):
+        schemas.UnmuteAlertsRequest(server_ids=[""])
+
+
+@pytest.mark.asyncio
+async def test_unmute_without_any_target_is_refused():
+    from fastapi import HTTPException
+    pool, _ = make_pool()
+
+    with pytest.raises(HTTPException) as exc:
+        await tools.unmute_server_alerts(pool)
+    assert exc.value.status_code == 422
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("kwargs", [{"server_id": "1.2.3.4:27015"}, {"all_servers": True}])
+async def test_unmute_server_alerts_without_an_active_mute(kwargs):
+    from fastapi import HTTPException
+    pool, _ = make_pool(fetch_result=[])
+
+    with pytest.raises(HTTPException) as exc:
+        await tools.unmute_server_alerts(pool, **kwargs)
+    assert exc.value.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_unmute_server_alerts_db_failure():
+    pool, _ = make_pool(error=RuntimeError("db down"))
+
+    with pytest.raises(RuntimeError):
+        await tools.unmute_server_alerts(pool, server_ids=["1.2.3.4:27015"])
+
+
+@pytest.mark.asyncio
+async def test_bulk_unmute_endpoint_needs_an_admin(client, db):
+    response = await client.post("/api/v1/alerts/unmute", json={"all_servers": True})
+
+    assert response.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_bulk_unmute_endpoint(client, db, admin_headers):
+    db._fetch_result = [{"server_id": "a:1"}, {"server_id": "b:1"}]
+
+    response = await client.post("/api/v1/alerts/unmute", json={"all_servers": True}, headers=admin_headers)
+
+    assert response.status_code == 200
+    assert response.json()["unmuted_count"] == 2
+
+
+# ══════════════════════════════════════════════════════
 # Tool 5: mute_server_alerts
 # ══════════════════════════════════════════════════════
 
@@ -728,7 +867,8 @@ def test_ranking_chart_matches_the_ranking_order():
 
     chart = agent_router._build_chart("get_server_ranking", {
         "window_hours": 1,
-        "ranked": [
+        "order": "best",
+        "shown": [
             {"server_name": "Solid", "avg_ping": 60.0, "crash_count": 0, "rank": 1},
             {"server_name": "Flaky", "avg_ping": 25.0, "crash_count": 2, "rank": 2},
         ],
@@ -740,11 +880,109 @@ def test_ranking_chart_matches_the_ranking_order():
     # "lowest bar wins" when the ranking says otherwise.
     assert chart.rows[0].note is None
     assert chart.rows[1].note == "2 crash(es)"
+    # Only the winner is set apart.
+    assert [r.highlight for r in chart.rows] == [True, False]
+    assert chart.order == "best"
 
 
 def test_ranking_chart_is_empty_when_nothing_ranked():
     from app.agent import router as agent_router
-    assert agent_router._build_chart("get_server_ranking", {"ranked": []}) is None
+    assert agent_router._build_chart("get_server_ranking", {"ranked": [], "shown": []}) is None
+
+
+# ── "top N" / "worst N": how many servers a ranking shows ──────────────
+
+def _fleet(n):
+    """n eligible servers, server 1 the best."""
+    return [rank_row(server_id=f"10.0.0.{i}:27015", server_name=f"S{i}", avg_ping=10.0 * i)
+            for i in range(1, n + 1)]
+
+
+@pytest.mark.asyncio
+async def test_ranking_shows_the_best_five_by_default():
+    pool, _ = make_pool(fetch_result=_fleet(23))
+    result = await tools.get_server_ranking(pool, hours=1)
+
+    assert [r["server_name"] for r in result["shown"]] == ["S1", "S2", "S3", "S4", "S5"]
+    assert result["count_note"] is None
+    # `ranked` still holds the whole fleet, with global rank numbers.
+    assert len(result["ranked"]) == 23
+
+
+@pytest.mark.asyncio
+async def test_ranking_honours_the_number_the_user_asked_for():
+    pool, _ = make_pool(fetch_result=_fleet(23))
+    assert len((await tools.get_server_ranking(pool, hours=1, count=10))["shown"]) == 10
+    assert len((await tools.get_server_ranking(pool, hours=1, count=3))["shown"]) == 3
+
+
+@pytest.mark.asyncio
+async def test_ranking_worst_comes_back_worst_first():
+    pool, _ = make_pool(fetch_result=_fleet(23))
+    result = await tools.get_server_ranking(pool, hours=1, order="worst")
+
+    assert [r["server_name"] for r in result["shown"]] == ["S23", "S22", "S21", "S20", "S19"]
+
+
+@pytest.mark.asyncio
+async def test_ranking_asked_for_more_than_exist_says_how_many_there_are():
+    pool, _ = make_pool(fetch_result=_fleet(23))
+    result = await tools.get_server_ranking(pool, hours=1, count=50)
+
+    assert len(result["shown"]) == 23
+    assert result["available_count"] == 23
+    assert "23" in result["count_note"] and "50" in result["count_note"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("bad", [0, -4])
+async def test_ranking_rejects_zero_and_negative_counts(bad):
+    from app.agent import router as agent_router
+
+    pool, _ = make_pool(fetch_result=_fleet(23))
+    result = await tools.get_server_ranking(pool, hours=1, count=bad)
+
+    assert result["shown"] == []
+    assert "not a valid number" in result["count_note"]
+    # No servers shown, so no chart either.
+    assert agent_router._build_chart("get_server_ranking", result) is None
+
+
+def test_worst_chart_is_labelled_and_highlights_the_worst_server():
+    from app.agent import router as agent_router
+
+    chart = agent_router._build_chart("get_server_ranking", {
+        "window_hours": 1,
+        "order": "worst",
+        "shown": [
+            {"server_name": "Bad", "avg_ping": 200.0, "crash_count": 3},
+            {"server_name": "Meh", "avg_ping": 120.0, "crash_count": 0},
+        ],
+    })
+
+    assert chart.order == "worst"
+    assert "worst" in chart.title
+    assert chart.rows[0].highlight and not chart.rows[1].highlight
+
+
+def test_a_single_server_gets_no_chart():
+    from app.agent import router as agent_router
+
+    chart = agent_router._build_chart("get_server_ranking", {
+        "window_hours": 1, "order": "best",
+        "shown": [{"server_name": "Only", "avg_ping": 30.0, "crash_count": 0}],
+    })
+
+    assert chart is None
+
+
+def test_chart_is_not_capped_below_what_was_asked():
+    from app.agent import router as agent_router
+
+    shown = [{"server_name": f"S{i}", "avg_ping": float(i), "crash_count": 0} for i in range(1, 24)]
+    chart = agent_router._build_chart("get_server_ranking", {"window_hours": 1, "order": "best", "shown": shown})
+
+    assert len(chart.rows) == 23
 
 
 # ══════════════════════════════════════════════════════
@@ -768,7 +1006,10 @@ async def test_fleet_overview_endpoint(client, db):
 
 @pytest.mark.asyncio
 async def test_server_ranking_endpoint(client, db):
-    db._fetch_result = [rank_row(server_id="live:27015", avg_ping=42.0)]
+    db._fetch_result = [
+        rank_row(server_id="live:27015", avg_ping=42.0),
+        rank_row(server_id="live2:27015", avg_ping=80.0),
+    ]
 
     response = await client.get("/api/v1/agent/tools/server-ranking?hours=6")
 
@@ -776,6 +1017,19 @@ async def test_server_ranking_endpoint(client, db):
     body = response.json()
     assert body["window_hours"] == 6
     assert body["ranked"][0]["server_id"] == "live:27015"
+    # The voice worker draws this chart instead of building its own.
+    assert body["chart"]["rows"][0]["highlight"] is True
+
+
+@pytest.mark.asyncio
+async def test_server_ranking_endpoint_passes_count_and_order(client, db):
+    db._fetch_result = [rank_row(server_id=f"s{i}:1", server_name=f"S{i}", avg_ping=10.0 * i) for i in range(1, 9)]
+
+    body = (await client.get("/api/v1/agent/tools/server-ranking?count=3&order=worst")).json()
+
+    assert [r["server_name"] for r in body["shown"]] == ["S8", "S7", "S6"]
+    assert body["chart"]["order"] == "worst"
+    assert len(body["chart"]["rows"]) == 3
 
 
 @pytest.mark.asyncio
@@ -795,7 +1049,10 @@ async def test_tool_endpoints_report_db_not_ready(monkeypatch, client):
 @pytest.mark.asyncio
 async def test_ask_endpoint_returns_a_chart_with_a_ranking_answer(client, db):
     """A ranking question comes back with the chart attached to the answer."""
-    db._fetch_result = [rank_row(server_id="live:27015", server_name="Solid", avg_ping=42.0)]
+    db._fetch_result = [
+        rank_row(server_id="live:27015", server_name="Solid", avg_ping=42.0),
+        rank_row(server_id="live2:27015", server_name="Other", avg_ping=90.0),
+    ]
 
     fake_function_call = MagicMock()
     fake_function_call.name = "get_server_ranking"
@@ -976,7 +1233,7 @@ def test_every_state_changing_tool_is_marked_p2():
     """
     from app.agent import router as agent_router
 
-    writes = {"mute_server_alerts", "acknowledge_event", "relabel_event"}
+    writes = {"mute_server_alerts", "unmute_server_alerts", "acknowledge_event", "relabel_event"}
     assert writes <= agent_router._P2_TOOLS
     # Every P2 name is a real registered tool, so none is a dead string.
     assert agent_router._P2_TOOLS <= set(agent_router._TOOL_BY_NAME)

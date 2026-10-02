@@ -1,4 +1,5 @@
 import React from 'react';
+import { createPortal } from 'react-dom';
 import { X, Flame, AlertOctagon, Activity, CheckCircle2, Info, ExternalLink, Bell, Trash2 } from 'lucide-react';
 import { formatTime, formatRelativeTime } from '../../utils/formatters';
 
@@ -24,12 +25,16 @@ export function NotificationsDrawer({ isOpen, onClose, notifications = [], onIns
   // Sort notifications by date descending
   const sorted = [...notifications].sort((a, b) => new Date(b.time) - new Date(a.time));
 
-  return (
+  // Portalled to <body>, like the Ask panel. Rendered in place it sat inside
+  // the page layout, where an ancestor's backdrop-filter/transform becomes
+  // the containing block for `position: fixed` -- so the drawer was only as
+  // tall as that ancestor instead of the full viewport.
+  return createPortal(
     <>
       {/* Overlay */}
       {isOpen && (
         <div 
-          className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-40 transition-opacity"
+          className="fixed inset-0 bg-slate-950/50 backdrop-blur-[2px] z-40 transition-opacity"
           onClick={onClose}
         />
       )}
@@ -115,6 +120,7 @@ export function NotificationsDrawer({ isOpen, onClose, notifications = [], onIns
           )}
         </div>
       </div>
-    </>
+    </>,
+    document.body
   );
 }

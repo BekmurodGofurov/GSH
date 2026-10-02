@@ -51,7 +51,10 @@ May execute immediately without user confirmation:
 - Read server metrics, server status, latency anomalies, recent events
 - Read fleet-wide totals — servers, online/offline, players (`get_fleet_overview`)
 - Trigger on-demand live polling (`poll_server_now`)
-- Rank servers by stability then latency (`get_server_ranking`)
+- Rank servers by stability then latency (`get_server_ranking`) — shows the
+  best 5 unless the user names a number (`count`) or asks for the worst
+  (`order`); asking for more than exist is answered with the real total
+- Read which servers are muted (`get_muted_servers`)
 - Read daily summaries (`generate_daily_report`)
 - Publish test events to Redis Streams (never directly to PostgreSQL)
 
@@ -62,11 +65,12 @@ Two rules keep the spoken and typed channels honest:
   (`/api/v1/agent/tools/*`) rather than carrying its own copy of the
   queries. Never answer a question by re-implementing a tool.
 - **A chart has to be the question.** Only `get_server_ranking` draws one.
-  A count gets a number; a comparison gets a chart.
+  A count gets a number; a comparison gets a chart. The chart holds
+  exactly the servers asked for, with the best (or worst) one set apart.
 
 ### Level P2 — Controlled (Write & State Changes)
 Must ask for explicit user confirmation before executing:
-- Mute/silence server alerts (`mute_server_alerts`)
+- Mute/silence server alerts (`mute_server_alerts`) and lift a mute (`unmute_server_alerts`)
 - Acknowledge incident events (`acknowledge_event`)
 - Re-label incident root causes (`relabel_event`)
 - Send on-demand daily reports to Telegram (`send_daily_report`)

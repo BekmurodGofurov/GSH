@@ -35,6 +35,7 @@ const SUGGESTED_QUERIES = [
   'How many players are online right now?',
   'Which server is performing best, and why?',
   'Which servers are currently offline?',
+  'Show the 5 worst servers.',
   'Show me recent incident events.',
 ];
 
@@ -56,24 +57,28 @@ function getEventTypeBadge(type) {
   const t = (type || '').toUpperCase();
   if (t.includes('CRASH') || t.includes('DOWN') || t.includes('OFFLINE')) {
     return {
-      className: 'bg-rose-950/80 text-rose-300 border-rose-800/80',
+      className:
+        'bg-rose-100 text-rose-700 border-rose-300 dark:bg-rose-950/80 dark:text-rose-300 dark:border-rose-800/80',
       label: type,
     };
   }
   if (t.includes('PING') || t.includes('LATENCY')) {
     return {
-      className: 'bg-amber-950/80 text-amber-300 border-amber-800/80',
+      className:
+        'bg-amber-100 text-amber-700 border-amber-300 dark:bg-amber-950/80 dark:text-amber-300 dark:border-amber-800/80',
       label: type,
     };
   }
   if (t.includes('RECOVERY') || t.includes('ONLINE')) {
     return {
-      className: 'bg-emerald-950/80 text-emerald-300 border-emerald-800/80',
+      className:
+        'bg-emerald-100 text-emerald-700 border-emerald-300 dark:bg-emerald-950/80 dark:text-emerald-300 dark:border-emerald-800/80',
       label: type,
     };
   }
   return {
-    className: 'bg-cyan-950/80 text-cyan-300 border-cyan-800/80',
+    className:
+      'bg-cyan-100 text-cyan-700 border-cyan-300 dark:bg-cyan-950/80 dark:text-cyan-300 dark:border-cyan-800/80',
     label: type,
   };
 }
@@ -81,18 +86,18 @@ function getEventTypeBadge(type) {
 function getRootCauseBadge(cause) {
   const c = (cause || '').toUpperCase();
   if (c.includes('REGIONAL') || c.includes('OUTAGE')) {
-    return 'bg-purple-950/80 text-purple-300 border-purple-800/80';
+    return 'bg-purple-100 text-purple-700 border-purple-300 dark:bg-purple-950/80 dark:text-purple-300 dark:border-purple-800/80';
   }
   if (c.includes('DDOS') || c.includes('ATTACK')) {
-    return 'bg-rose-950/80 text-rose-300 border-rose-800/80';
+    return 'bg-rose-100 text-rose-700 border-rose-300 dark:bg-rose-950/80 dark:text-rose-300 dark:border-rose-800/80';
   }
   if (c.includes('PLAYER') || c.includes('DROP')) {
-    return 'bg-blue-950/80 text-blue-300 border-blue-800/80';
+    return 'bg-blue-100 text-blue-700 border-blue-300 dark:bg-blue-950/80 dark:text-blue-300 dark:border-blue-800/80';
   }
   if (c.includes('MAINTENANCE')) {
-    return 'bg-sky-950/80 text-sky-300 border-sky-800/80';
+    return 'bg-sky-100 text-sky-700 border-sky-300 dark:bg-sky-950/80 dark:text-sky-300 dark:border-sky-800/80';
   }
-  return 'bg-slate-800 text-slate-300 border-slate-700/80';
+  return 'bg-slate-100 text-slate-700 border-slate-300 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700/80';
 }
 
 function EventCard({ event }) {
@@ -101,12 +106,12 @@ function EventCard({ event }) {
   const timeFormatted = formatEventTime(event.time);
 
   return (
-    <div className="rounded-xl border border-slate-800/90 bg-slate-900/90 p-3 space-y-2 hover:border-slate-700 transition-colors shadow-sm">
+    <div className="rounded-xl border border-slate-200 dark:border-slate-800/90 bg-white dark:bg-slate-900/90 p-3 space-y-2 hover:border-slate-300 dark:hover:border-slate-700 transition-colors shadow-sm">
       <div className="flex items-center justify-between gap-2 flex-wrap">
         <div className="flex items-center gap-2">
-          <span className="font-mono font-bold text-cyan-400 text-xs">#{event.id}</span>
+          <span className="font-mono font-bold text-cyan-600 dark:text-cyan-400 text-xs">#{event.id}</span>
           {event.serverId && (
-            <span className="font-mono text-[11px] text-slate-300 bg-slate-800 px-2 py-0.5 rounded border border-slate-700/60">
+            <span className="font-mono text-[11px] text-slate-700 dark:text-slate-300 bg-slate-200 dark:bg-slate-800 px-2 py-0.5 rounded border border-slate-300 dark:border-slate-700/60">
               {event.serverId}
             </span>
           )}
@@ -118,22 +123,22 @@ function EventCard({ event }) {
         )}
       </div>
 
-      <div className="flex items-center gap-2 text-[10px] font-mono text-slate-400 flex-wrap">
+      <div className="flex items-center gap-2 text-[10px] font-mono text-slate-500 dark:text-slate-400 flex-wrap">
         {event.rootCause && (
           <span className={`px-1.5 py-0.5 rounded border font-sans font-medium ${causeClass}`}>
             {event.rootCause}
           </span>
         )}
         {timeFormatted && (
-          <span className="flex items-center gap-1 text-slate-400">
-            <Clock className="w-3 h-3 text-slate-500" />
+          <span className="flex items-center gap-1 text-slate-500 dark:text-slate-400">
+            <Clock className="w-3 h-3 text-slate-500 dark:text-slate-500" />
             {timeFormatted}
           </span>
         )}
       </div>
 
       {event.message && (
-        <p className="text-xs text-slate-300 leading-relaxed font-sans border-t border-slate-800/60 pt-1.5 mt-1">
+        <p className="text-xs text-slate-700 dark:text-slate-300 leading-relaxed font-sans border-t border-slate-200 dark:border-slate-800/60 pt-1.5 mt-1">
           {event.message}
         </p>
       )}
@@ -155,7 +160,7 @@ function renderInline(text) {
     const raw = match[0];
     if (raw.startsWith('**') && raw.endsWith('**')) {
       parts.push(
-        <strong key={key++} className="font-semibold text-slate-100">
+        <strong key={key++} className="font-semibold text-slate-900 dark:text-slate-100">
           {raw.slice(2, -2)}
         </strong>
       );
@@ -163,14 +168,14 @@ function renderInline(text) {
       parts.push(
         <code
           key={key++}
-          className="px-1.5 py-0.5 rounded bg-slate-800 text-cyan-300 font-mono text-[11px] border border-slate-700/60"
+          className="px-1.5 py-0.5 rounded bg-slate-200 dark:bg-slate-800 text-cyan-700 dark:text-cyan-300 font-mono text-[11px] border border-slate-300 dark:border-slate-700/60"
         >
           {raw.slice(1, -1)}
         </code>
       );
     } else if (raw.startsWith('*') && raw.endsWith('*')) {
       parts.push(
-        <em key={key++} className="italic text-slate-200">
+        <em key={key++} className="italic text-slate-800 dark:text-slate-200">
           {raw.slice(1, -1)}
         </em>
       );
@@ -360,11 +365,11 @@ function parseEventMarkdown(content) {
 function GeneralMarkdown({ content }) {
   const blocks = parseMarkdownBlocks(content);
   return (
-    <div className="space-y-2 text-xs leading-relaxed text-slate-200">
+    <div className="space-y-2 text-xs leading-relaxed text-slate-800 dark:text-slate-200">
       {blocks.map((block, idx) => {
         if (block.type === 'h1' || block.type === 'h2' || block.type === 'h3') {
           return (
-            <h4 key={idx} className="text-xs font-bold text-cyan-300 mt-2 mb-1 tracking-wide uppercase">
+            <h4 key={idx} className="text-xs font-bold text-cyan-700 dark:text-cyan-300 mt-2 mb-1 tracking-wide uppercase">
               {renderInline(block.content)}
             </h4>
           );
@@ -383,7 +388,7 @@ function GeneralMarkdown({ content }) {
         }
         if (block.type === 'ol') {
           return (
-            <ol key={idx} className="space-y-1.5 my-1.5 list-decimal list-inside text-slate-200">
+            <ol key={idx} className="space-y-1.5 my-1.5 list-decimal list-inside text-slate-800 dark:text-slate-200">
               {block.items.map((item, itemIdx) => (
                 <li key={itemIdx} className="leading-relaxed">
                   {renderInline(item.content)}
@@ -394,14 +399,14 @@ function GeneralMarkdown({ content }) {
         }
         if (block.type === 'code') {
           return (
-            <pre key={idx} className="p-3 rounded-xl bg-slate-950 border border-slate-800 text-[11px] font-mono text-cyan-300 overflow-x-auto my-2">
+            <pre key={idx} className="p-3 rounded-xl bg-slate-100 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-[11px] font-mono text-cyan-700 dark:text-cyan-300 overflow-x-auto my-2">
               <code>{block.content}</code>
             </pre>
           );
         }
         if (block.type === 'table') {
           return (
-            <div key={idx} className="overflow-x-auto my-2 rounded-xl border border-slate-800 bg-slate-900/60">
+            <div key={idx} className="overflow-x-auto my-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/60">
               <table className="w-full text-[11px] text-left">
                 <tbody>
                   {block.rows.map((row, rIdx) => (
@@ -409,8 +414,8 @@ function GeneralMarkdown({ content }) {
                       key={rIdx}
                       className={
                         rIdx === 0
-                          ? 'bg-slate-800/80 font-semibold text-cyan-300 border-b border-slate-700/60'
-                          : 'border-b border-slate-800/40 last:border-none'
+                          ? 'bg-slate-100 dark:bg-slate-800/80 font-semibold text-cyan-700 dark:text-cyan-300 border-b border-slate-300 dark:border-slate-700/60'
+                          : 'border-b border-slate-200 dark:border-slate-800/40 last:border-none'
                       }
                     >
                       {row.map((cell, cIdx) => (
@@ -442,9 +447,9 @@ function MarkdownContent({ content }) {
     return (
       <div className="space-y-2.5">
         {eventData.prefix && <GeneralMarkdown content={eventData.prefix} />}
-        <div className="flex items-center justify-between text-[11px] font-mono text-cyan-400 mt-2 mb-1.5 px-0.5">
+        <div className="flex items-center justify-between text-[11px] font-mono text-cyan-600 dark:text-cyan-400 mt-2 mb-1.5 px-0.5">
           <span className="flex items-center gap-1.5 font-bold">
-            <AlertCircle className="w-3.5 h-3.5 text-amber-400" />
+            <AlertCircle className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
             Recent Incidents ({eventData.events.length})
           </span>
         </div>
@@ -462,20 +467,54 @@ function MarkdownContent({ content }) {
 
 
 // ─── Inline bar chart (pure SVG, no external dependencies) ───────────────────
-function BarChart({ title, rows, unit = 'ms' }) {
+//
+// The first row is the one the question was about -- the best server, or
+// the worst when the user asked for the worst -- so it is drawn apart:
+// a gradient bar, a glow, a label and a medal, where the rest are plain.
+// Colours come from CSS classes (not inline hex) so the chart follows the
+// panel between light and dark.
+// Long game-server titles would run off the left edge of the chart.
+function shortLabel(label, max = 26) {
+  const text = String(label ?? '');
+  return text.length > max ? `${text.slice(0, max - 1)}…` : text;
+}
+
+function BarChart({ title, rows, unit = 'ms', order = 'best' }) {
   if (!rows || rows.length === 0) return null;
+  const isWorst = order === 'worst';
   const max = Math.max(...rows.map((r) => r.value || 0), 1);
-  const BAR_H = 18;
+  const BAR_H = 20;
   const GAP = 8;
-  const LABEL_W = 150;
-  const BAR_MAX_W = 150;
+  const LABEL_W = 170;
+  const BAR_MAX_W = 130;
   const VALUE_W = 110;
   const width = LABEL_W + BAR_MAX_W + VALUE_W;
   const svgH = rows.length * (BAR_H + GAP) + 4;
 
+  const accent = isWorst ? 'rose' : 'emerald';
+
   return (
-    <div className="my-2 rounded-xl border border-cyan-800/40 bg-slate-900/90 px-3 pt-3 pb-2 backdrop-blur-sm">
-      <p className="text-[10px] font-bold text-cyan-400 uppercase tracking-wider mb-2">{title}</p>
+    <div
+      className={`my-2 rounded-xl border bg-white dark:bg-slate-900/90 px-3 pt-3 pb-2 shadow-sm ${
+        isWorst
+          ? 'border-rose-300 dark:border-rose-800/50'
+          : 'border-cyan-200 dark:border-cyan-800/40'
+      }`}
+    >
+      <div className="flex items-center justify-between gap-2 mb-2">
+        <p className="text-[10px] font-bold text-cyan-700 dark:text-cyan-400 uppercase tracking-wider">
+          {title}
+        </p>
+        <span
+          className={`shrink-0 text-[9px] font-mono font-bold uppercase tracking-wider px-1.5 py-0.5 rounded border ${
+            isWorst
+              ? 'bg-rose-100 text-rose-700 border-rose-300 dark:bg-rose-950/60 dark:text-rose-300 dark:border-rose-800/60'
+              : 'bg-emerald-100 text-emerald-700 border-emerald-300 dark:bg-emerald-950/60 dark:text-emerald-300 dark:border-emerald-800/60'
+          }`}
+        >
+          {rows.length} {rows.length === 1 ? 'server' : 'servers'}
+        </span>
+      </div>
       {/* viewBox + width:100% so the chart shrinks to fit a phone-width
           panel instead of pushing a horizontal scrollbar into the chat. */}
       <svg
@@ -483,12 +522,24 @@ function BarChart({ title, rows, unit = 'ms' }) {
         width="100%"
         height={svgH}
         preserveAspectRatio="xMinYMin meet"
+        role="img"
+        aria-label={title}
       >
+        <defs>
+          <linearGradient id="gsh-bar-best" x1="0" x2="1" y1="0" y2="0">
+            <stop offset="0%" stopColor="#10b981" />
+            <stop offset="100%" stopColor="#facc15" />
+          </linearGradient>
+          <linearGradient id="gsh-bar-worst" x1="0" x2="1" y1="0" y2="0">
+            <stop offset="0%" stopColor="#f43f5e" />
+            <stop offset="100%" stopColor="#fb923c" />
+          </linearGradient>
+        </defs>
         {rows.map((row, i) => {
           const y = i * (BAR_H + GAP);
           const barW = max > 0 ? Math.round((row.value / max) * BAR_MAX_W) : 4;
-          const isOnline = row.status !== 'OFFLINE';
-          const barColor = isOnline ? '#22d3ee' : '#f87171';
+          const w = Math.max(barW, 4);
+          const star = Boolean(row.highlight);
           return (
             <g key={i}>
               <text
@@ -496,26 +547,46 @@ function BarChart({ title, rows, unit = 'ms' }) {
                 y={y + BAR_H / 2 + 4}
                 textAnchor="end"
                 fontSize="9"
-                fill="#94a3b8"
                 fontFamily="monospace"
+                fontWeight={star ? 700 : 400}
+                className={
+                  star
+                    ? accent === 'rose'
+                      ? 'fill-rose-700 dark:fill-rose-300'
+                      : 'fill-emerald-700 dark:fill-emerald-300'
+                    : 'fill-slate-500 dark:fill-slate-400'
+                }
               >
-                {row.label}
+                {star ? '★ ' : ''}
+                {shortLabel(row.label)}
               </text>
-              <rect
-                x={LABEL_W}
-                y={y + 2}
-                width={Math.max(barW, 4)}
-                height={BAR_H - 4}
-                rx={3}
-                fill={barColor}
-                fillOpacity={0.8}
-              />
+              {star ? (
+                <rect
+                  x={LABEL_W}
+                  y={y + 1}
+                  width={w}
+                  height={BAR_H - 2}
+                  rx={4}
+                  fill={`url(#gsh-bar-${isWorst ? 'worst' : 'best'})`}
+                  className={isWorst ? 'drop-shadow-[0_0_6px_rgba(244,63,94,0.55)]' : 'drop-shadow-[0_0_6px_rgba(16,185,129,0.55)]'}
+                />
+              ) : (
+                <rect
+                  x={LABEL_W}
+                  y={y + 3}
+                  width={w}
+                  height={BAR_H - 6}
+                  rx={3}
+                  className="fill-cyan-500/70 dark:fill-cyan-400/70"
+                />
+              )}
               <text
-                x={LABEL_W + Math.max(barW, 4) + 5}
+                x={LABEL_W + w + 5}
                 y={y + BAR_H / 2 + 4}
                 fontSize="9"
-                fill="#e2e8f0"
                 fontFamily="monospace"
+                fontWeight={star ? 700 : 400}
+                className="fill-slate-800 dark:fill-slate-200"
               >
                 {row.value}
                 {unit}
@@ -523,7 +594,7 @@ function BarChart({ title, rows, unit = 'ms' }) {
                     too -- so the crash count rides along with the bar
                     rather than living only in the spoken answer. */}
                 {row.note && (
-                  <tspan fill="#fbbf24" dx="6">
+                  <tspan className="fill-amber-600 dark:fill-amber-400" dx="6">
                     {row.note}
                   </tspan>
                 )}
@@ -541,10 +612,10 @@ function BarChart({ title, rows, unit = 'ms' }) {
 function UserBubble({ item }) {
   return (
     <div className="flex justify-end">
-      <div className="max-w-[85%] px-3.5 py-2.5 text-xs leading-relaxed bg-slate-800/90 text-slate-100 border border-slate-700/60 rounded-2xl rounded-br-sm shadow-sm">
-        <span className="flex items-center gap-1 text-[10px] font-bold text-slate-400 mb-1">
+      <div className="max-w-[85%] px-3.5 py-2.5 text-xs leading-relaxed bg-cyan-600 text-white border border-cyan-700 dark:bg-slate-800/90 dark:text-slate-100 dark:border-slate-700/60 rounded-2xl rounded-br-sm shadow-sm">
+        <span className="flex items-center gap-1 text-[10px] font-bold text-cyan-100 dark:text-slate-400 mb-1">
           You
-          {item.viaVoice && <Mic className="w-2.5 h-2.5 text-slate-500" />}
+          {item.viaVoice && <Mic className="w-2.5 h-2.5 text-cyan-200 dark:text-slate-500" />}
           {!item.final && item.viaVoice && (
             <span className="font-normal italic opacity-70">speaking…</span>
           )}
@@ -563,11 +634,11 @@ function AgentBubble({ item }) {
     return (
       <div className="flex justify-start">
         <div
-          className={`max-w-[85%] px-3.5 py-2 text-xs leading-relaxed bg-gradient-to-br from-cyan-900/50 to-slate-900/60 text-cyan-100 border border-cyan-800/30 rounded-2xl rounded-bl-sm ${
+          className={`max-w-[85%] px-3.5 py-2 text-xs leading-relaxed bg-gradient-to-br from-cyan-100 dark:from-cyan-900/50 to-white dark:to-slate-900/60 text-cyan-900 dark:text-cyan-100 border border-cyan-200 dark:border-cyan-800/30 rounded-2xl rounded-bl-sm ${
             item.final ? 'opacity-100' : 'opacity-80'
           }`}
         >
-          <span className="flex items-center gap-1 text-[10px] font-bold text-cyan-500 mb-0.5">
+          <span className="flex items-center gap-1 text-[10px] font-bold text-cyan-600 dark:text-cyan-500 mb-0.5">
             GSH
             <Mic className="w-2.5 h-2.5" />
             {!item.final && <span className="font-normal italic opacity-70">speaking…</span>}
@@ -583,30 +654,30 @@ function AgentBubble({ item }) {
       <div
         className={`max-w-[92%] px-4 py-3 text-xs leading-relaxed rounded-2xl rounded-bl-sm shadow-md border ${
           item.isError
-            ? 'bg-rose-950/40 text-rose-200 border-rose-800/60'
-            : 'bg-gradient-to-br from-cyan-950/40 via-slate-900/90 to-slate-950 text-slate-200 border-cyan-800/40'
+            ? 'bg-rose-50 dark:bg-rose-950/40 text-rose-800 dark:text-rose-200 border-rose-300 dark:border-rose-800/60'
+            : 'bg-gradient-to-br from-cyan-50 dark:from-cyan-950/40 via-white dark:via-slate-900/90 to-slate-50 dark:to-slate-950 text-slate-800 dark:text-slate-200 border-cyan-200 dark:border-cyan-800/40'
         }`}
       >
-        <div className="flex items-center justify-between gap-2 mb-2 pb-1.5 border-b border-cyan-900/30">
+        <div className="flex items-center justify-between gap-2 mb-2 pb-1.5 border-b border-cyan-100 dark:border-cyan-900/30">
           <div className="flex items-center gap-1.5">
-            <Bot className={`w-3.5 h-3.5 ${item.isError ? 'text-rose-400' : 'text-cyan-400'}`} />
+            <Bot className={`w-3.5 h-3.5 ${item.isError ? 'text-rose-600 dark:text-rose-400' : 'text-cyan-600 dark:text-cyan-400'}`} />
             <span
               className={`text-[10px] font-bold tracking-wider uppercase ${
-                item.isError ? 'text-rose-400' : 'text-cyan-400'
+                item.isError ? 'text-rose-600 dark:text-rose-400' : 'text-cyan-600 dark:text-cyan-400'
               }`}
             >
               GSH Agent
             </span>
           </div>
           {item.tool_used && (
-            <span className="inline-flex items-center gap-1 text-[10px] font-mono px-2 py-0.5 rounded-full bg-cyan-950/90 text-cyan-300 border border-cyan-800/60">
-              <Wrench className="w-3 h-3 text-cyan-400" />
+            <span className="inline-flex items-center gap-1 text-[10px] font-mono px-2 py-0.5 rounded-full bg-cyan-100 dark:bg-cyan-950/90 text-cyan-700 dark:text-cyan-300 border border-cyan-300 dark:border-cyan-800/60">
+              <Wrench className="w-3 h-3 text-cyan-600 dark:text-cyan-400" />
               {item.tool_used}
             </span>
           )}
         </div>
         {item.isError ? (
-          <p className="text-rose-300 font-mono text-[11px]">{item.text}</p>
+          <p className="text-rose-700 dark:text-rose-300 font-mono text-[11px]">{item.text}</p>
         ) : (
           <MarkdownContent content={item.text} />
         )}
@@ -617,7 +688,14 @@ function AgentBubble({ item }) {
 
 function ConversationItem({ item }) {
   if (item.role === 'chart') {
-    return <BarChart title={item.chart.title} rows={item.chart.rows} unit={item.chart.unit} />;
+    return (
+      <BarChart
+        title={item.chart.title}
+        rows={item.chart.rows}
+        unit={item.chart.unit}
+        order={item.chart.order}
+      />
+    );
   }
   if (item.role === 'user') return <UserBubble item={item} />;
   return <AgentBubble item={item} />;
@@ -741,7 +819,7 @@ function LiveVoiceControls({ onIdleTimeout, lastActivityAt }) {
         aria-label={isMuted ? 'Unmute microphone' : 'Mute microphone'}
         className={`relative flex items-center justify-center w-10 h-10 shrink-0 rounded-full border-2 transition-all duration-200 active:scale-95 cursor-pointer disabled:opacity-50 disabled:cursor-wait ${
           isMuted
-            ? 'bg-slate-900 border-rose-500 text-rose-400 hover:bg-slate-800'
+            ? 'bg-white dark:bg-slate-900 border-rose-500 text-rose-600 dark:text-rose-400 hover:bg-slate-100 dark:hover:bg-slate-800'
             : state === 'speaking'
               ? 'bg-violet-600 border-violet-400 text-white shadow-[0_0_18px_rgba(139,92,246,0.45)]'
               : 'bg-cyan-600 border-cyan-400 text-white shadow-[0_0_18px_rgba(6,182,212,0.45)]'
@@ -758,7 +836,7 @@ function LiveVoiceControls({ onIdleTimeout, lastActivityAt }) {
 
       <div className="flex-1 min-w-0">
         <BarVisualizer state={state} trackRef={audioTrack} className="w-full h-5" />
-        <span className="block text-[10px] font-mono text-slate-500 truncate">
+        <span className="block text-[10px] font-mono text-slate-500 dark:text-slate-500 truncate">
           {!isConnected
             ? 'Connecting…'
             : isMuted
@@ -825,22 +903,22 @@ function Conversation({
   };
 
   return (
-    <div className="flex-1 flex flex-col overflow-hidden bg-[#080e1a]">
-      <div className="flex-1 overflow-y-auto mx-4 my-3 rounded-2xl border border-slate-800/60 bg-slate-900/40 p-3.5 space-y-3 min-h-0">
+    <div className="flex-1 flex flex-col overflow-hidden bg-slate-50 dark:bg-[#080e1a]">
+      <div className="flex-1 overflow-y-auto mx-4 my-3 rounded-2xl border border-slate-200 dark:border-slate-800/60 bg-white/80 dark:bg-slate-900/40 p-3.5 space-y-3 min-h-0">
         {items.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-full gap-4 py-8 text-center">
-            <div className="w-12 h-12 rounded-2xl bg-cyan-950/60 border border-cyan-800/40 flex items-center justify-center shadow-lg shadow-cyan-950/50">
-              <Bot className="w-6 h-6 text-cyan-400" />
+            <div className="w-12 h-12 rounded-2xl bg-cyan-100 dark:bg-cyan-950/60 border border-cyan-200 dark:border-cyan-800/40 flex items-center justify-center shadow-lg shadow-cyan-200/60 dark:shadow-cyan-950/50">
+              <Bot className="w-6 h-6 text-cyan-600 dark:text-cyan-400" />
             </div>
             <div className="max-w-[340px]">
-              <h3 className="text-sm font-semibold text-slate-100 mb-1">GSH AI Assistant</h3>
-              <p className="text-xs text-slate-400 leading-relaxed">
+              <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100 mb-1">GSH AI Assistant</h3>
+              <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed">
                 Type a question or tap the microphone and talk. Ask about server health,
                 latency, which server is performing best, or recent incidents.
               </p>
             </div>
             <div className="w-full max-w-[440px] space-y-2 pt-2">
-              <p className="text-[10px] font-mono uppercase tracking-wider text-slate-500 font-bold text-left px-1">
+              <p className="text-[10px] font-mono uppercase tracking-wider text-slate-500 dark:text-slate-500 font-bold text-left px-1">
                 Try asking:
               </p>
               {SUGGESTED_QUERIES.map((hint) => (
@@ -848,10 +926,10 @@ function Conversation({
                   key={hint}
                   type="button"
                   onClick={() => onSendQuery(hint)}
-                  className="w-full text-left text-xs px-3.5 py-2.5 rounded-xl bg-slate-900/90 border border-slate-800/90 text-slate-300 hover:border-cyan-500/60 hover:text-cyan-200 hover:bg-slate-800/80 transition-all flex items-center justify-between group cursor-pointer shadow-sm"
+                  className="w-full text-left text-xs px-3.5 py-2.5 rounded-xl bg-white dark:bg-slate-900/90 border border-slate-200 dark:border-slate-800/90 text-slate-700 dark:text-slate-300 hover:border-cyan-500 dark:hover:border-cyan-500/60 hover:text-cyan-700 dark:hover:text-cyan-200 hover:bg-slate-50 dark:hover:bg-slate-800/80 transition-all flex items-center justify-between group cursor-pointer shadow-sm"
                 >
                   <span>{hint}</span>
-                  <span className="text-[10px] font-mono text-cyan-500 opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1">
+                  <span className="text-[10px] font-mono text-cyan-600 dark:text-cyan-500 opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1">
                     Send <Send className="w-3 h-3" />
                   </span>
                 </button>
@@ -866,8 +944,8 @@ function Conversation({
 
             {isLoading && (
               <div className="flex justify-start">
-                <div className="px-4 py-2.5 rounded-2xl rounded-bl-sm bg-gradient-to-br from-cyan-950/30 via-slate-900/80 to-slate-950 border border-cyan-800/30 flex items-center gap-2.5 text-xs text-cyan-300 shadow-sm">
-                  <Loader2 className="w-3.5 h-3.5 animate-spin text-cyan-400" />
+                <div className="px-4 py-2.5 rounded-2xl rounded-bl-sm bg-gradient-to-br from-cyan-50 dark:from-cyan-950/30 via-white dark:via-slate-900/80 to-slate-50 dark:to-slate-950 border border-cyan-200 dark:border-cyan-800/30 flex items-center gap-2.5 text-xs text-cyan-700 dark:text-cyan-300 shadow-sm">
+                  <Loader2 className="w-3.5 h-3.5 animate-spin text-cyan-600 dark:text-cyan-400" />
                   <span className="font-mono text-[11px]">Analyzing telemetry & generating answer…</span>
                 </div>
               </div>
@@ -885,7 +963,7 @@ function Conversation({
               type="button"
               onClick={() => onSendQuery(hint)}
               disabled={isLoading}
-              className="shrink-0 text-[11px] px-3 py-1 rounded-full bg-slate-900/80 border border-slate-800 text-slate-400 hover:text-cyan-300 hover:border-cyan-800/60 transition-colors cursor-pointer disabled:opacity-50"
+              className="shrink-0 text-[11px] px-3 py-1 rounded-full bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 text-slate-500 dark:text-slate-400 hover:text-cyan-700 dark:hover:text-cyan-300 hover:border-cyan-500 dark:hover:border-cyan-800/60 transition-colors cursor-pointer disabled:opacity-50"
             >
               {hint}
             </button>
@@ -898,7 +976,7 @@ function Conversation({
           on purpose -- LiveKit's own buttons (StartAudio) render without a
           `type`, which inside a form defaults to submit, so enabling audio
           would fire off whatever question was half-typed in the box. */}
-      <div className="shrink-0 flex flex-col gap-2.5 p-3 sm:p-4 border-t border-slate-800/80 bg-slate-950/80 backdrop-blur-md">
+      <div className="shrink-0 flex flex-col gap-2.5 p-3 sm:p-4 border-t border-slate-200 dark:border-slate-800/80 bg-white/90 dark:bg-slate-950/80 backdrop-blur-md">
         <form onSubmit={handleSubmit}>
           <div className="relative flex items-center">
             <textarea
@@ -909,12 +987,12 @@ function Conversation({
               placeholder="Ask about servers, latency, recent incidents… (Enter to send)"
               rows={1}
               disabled={isLoading}
-              className="w-full resize-none rounded-xl border border-slate-800 bg-slate-900/90 text-slate-100 text-xs sm:text-sm px-3.5 py-2.5 pr-20 placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-cyan-500/60 focus:border-cyan-500/80 disabled:opacity-50 transition-colors"
+              className="w-full resize-none rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 text-slate-900 dark:text-slate-100 text-xs sm:text-sm px-3.5 py-2.5 pr-20 placeholder:text-slate-400 dark:placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-cyan-500/60 focus:border-cyan-500/80 disabled:opacity-50 transition-colors"
             />
             <button
               type="submit"
               disabled={isLoading || !input.trim()}
-              className="absolute right-2 bottom-2 px-3 py-1.5 rounded-lg bg-cyan-600 hover:bg-cyan-500 active:scale-95 disabled:bg-slate-800 disabled:text-slate-600 text-white text-xs font-semibold flex items-center gap-1.5 shadow-md shadow-cyan-950/50 transition-all cursor-pointer"
+              className="absolute right-2 bottom-2 px-3 py-1.5 rounded-lg bg-cyan-600 hover:bg-cyan-500 active:scale-95 disabled:bg-slate-200 dark:disabled:bg-slate-800 disabled:text-slate-400 dark:disabled:text-slate-600 text-white text-xs font-semibold flex items-center gap-1.5 shadow-md shadow-cyan-200/60 dark:shadow-cyan-950/50 transition-all cursor-pointer"
             >
               {isLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />}
               <span>Send</span>
@@ -924,13 +1002,13 @@ function Conversation({
 
         {voiceSlot}
 
-        <div className="flex items-center justify-between text-[10px] text-slate-500 font-mono px-1">
+        <div className="flex items-center justify-between text-[10px] text-slate-500 dark:text-slate-500 font-mono px-1">
           <span>Enter to send • Shift+Enter for new line</span>
           {items.length > 0 && (
             <button
               type="button"
               onClick={onClearItems}
-              className="flex items-center gap-1 text-slate-400 hover:text-rose-400 transition-colors cursor-pointer"
+              className="flex items-center gap-1 text-slate-500 dark:text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 transition-colors cursor-pointer"
             >
               <RotateCcw className="w-3 h-3" />
               Clear chat
@@ -1007,7 +1085,7 @@ export function AskPanel({ isOpen, onOpen, onClose }) {
         {
           id: `chart_${Date.now()}`,
           role: 'chart',
-          chart: { title: data.title, rows: data.rows, unit: data.unit || 'ms' },
+          chart: { title: data.title, rows: data.rows, unit: data.unit || 'ms', order: data.order || 'best' },
           time: Date.now(),
         },
       ];
@@ -1101,6 +1179,7 @@ export function AskPanel({ isOpen, onOpen, onClose }) {
           title: data.chart.title,
           rows: data.chart.rows,
           unit: data.chart.unit || 'ms',
+          order: data.chart.order || 'best',
         },
         time: Date.now(),
       });
@@ -1127,11 +1206,11 @@ export function AskPanel({ isOpen, onOpen, onClose }) {
         onClick={startVoice}
         disabled={lkConnecting}
         aria-label="Start voice session"
-        className="flex items-center justify-center w-10 h-10 shrink-0 rounded-full border-2 border-slate-700 bg-slate-900 text-slate-300 hover:border-cyan-500 hover:text-cyan-300 transition-colors active:scale-95 cursor-pointer disabled:opacity-50 disabled:cursor-wait"
+        className="flex items-center justify-center w-10 h-10 shrink-0 rounded-full border-2 border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 hover:border-cyan-500 hover:text-cyan-700 dark:hover:text-cyan-300 transition-colors active:scale-95 cursor-pointer disabled:opacity-50 disabled:cursor-wait"
       >
         {lkConnecting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Mic className="w-4 h-4" />}
       </button>
-      <span className="text-[10px] font-mono text-slate-500">
+      <span className="text-[10px] font-mono text-slate-500 dark:text-slate-500">
         {lkConnecting ? 'Connecting to voice session…' : 'Tap the mic to talk instead of typing'}
       </span>
     </div>
@@ -1160,21 +1239,21 @@ export function AskPanel({ isOpen, onOpen, onClose }) {
       />
 
       <div
-        className={`fixed inset-y-0 right-0 z-50 w-full sm:w-[560px] lg:w-[680px] xl:w-[760px] bg-[#080e1a] border-l border-slate-800 shadow-2xl transform transition-transform duration-300 ease-in-out flex flex-col text-slate-100 ${
+        className={`fixed inset-y-0 right-0 z-50 w-full sm:w-[560px] lg:w-[680px] xl:w-[760px] bg-slate-50 dark:bg-[#080e1a] border-l border-slate-200 dark:border-slate-800 shadow-2xl transform transition-transform duration-300 ease-in-out flex flex-col text-slate-900 dark:text-slate-100 ${
           isOpen ? 'translate-x-0' : 'translate-x-full'
         }`}
       >
-        <div className="flex items-center justify-between p-4 border-b border-slate-800/80 bg-slate-900/60 backdrop-blur-md shrink-0">
-          <div className="flex items-center gap-2 text-slate-100 font-bold">
-            <Bot className="w-5 h-5 text-cyan-400" />
+        <div className="flex items-center justify-between p-4 border-b border-slate-200 dark:border-slate-800/80 bg-white dark:bg-slate-900/60 backdrop-blur-md shrink-0">
+          <div className="flex items-center gap-2 text-slate-900 dark:text-slate-100 font-bold">
+            <Bot className="w-5 h-5 text-cyan-600 dark:text-cyan-400" />
             Ask GSH
-            <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-cyan-950/80 text-cyan-400 border border-cyan-800/50 uppercase font-bold">
+            <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-cyan-100 dark:bg-cyan-950/80 text-cyan-600 dark:text-cyan-400 border border-cyan-300 dark:border-cyan-800/50 uppercase font-bold">
               AGENT
             </span>
           </div>
           <div className="flex items-center gap-2">
             {lkSession && (
-              <span className="hidden sm:inline-flex items-center gap-1.5 text-[10px] font-mono px-2 py-1 rounded-full bg-cyan-950/70 text-cyan-300 border border-cyan-800/60">
+              <span className="hidden sm:inline-flex items-center gap-1.5 text-[10px] font-mono px-2 py-1 rounded-full bg-cyan-100 dark:bg-cyan-950/70 text-cyan-700 dark:text-cyan-300 border border-cyan-300 dark:border-cyan-800/60">
                 <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse" />
                 Voice live
               </span>
@@ -1182,7 +1261,7 @@ export function AskPanel({ isOpen, onOpen, onClose }) {
             <button
               type="button"
               onClick={handleClose}
-              className="p-1.5 text-slate-400 hover:text-slate-200 rounded-md hover:bg-slate-800 transition-colors cursor-pointer"
+              className="p-1.5 text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 rounded-md hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
             >
               <X className="w-5 h-5" />
             </button>
@@ -1190,7 +1269,7 @@ export function AskPanel({ isOpen, onOpen, onClose }) {
         </div>
 
         {lkError && (
-          <div className="mx-4 mt-3 p-2.5 rounded-xl bg-rose-950/40 border border-rose-800 text-[11px] text-rose-300 flex items-start gap-2 shrink-0">
+          <div className="mx-4 mt-3 p-2.5 rounded-xl bg-rose-50 dark:bg-rose-950/40 border border-rose-300 dark:border-rose-800 text-[11px] text-rose-700 dark:text-rose-300 flex items-start gap-2 shrink-0">
             <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-px" />
             <span>{lkError}</span>
           </div>

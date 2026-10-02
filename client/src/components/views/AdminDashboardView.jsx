@@ -19,6 +19,10 @@ import {
   SlidersHorizontal,
   X,
   Loader2,
+  BellOff,
+  Bell,
+  Radar,
+  Users,
 } from 'lucide-react';
 import { api } from '../../services/api';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '../common/Card';
@@ -26,6 +30,16 @@ import { Button } from '../common/Button';
 import { Badge } from '../common/Badge';
 import { Modal } from '../common/Modal';
 import { Input, Select } from '../common/Input';
+import { MutedIndicator, isMuted } from '../common/MutedIndicator';
+
+const MUTE_DURATIONS = [
+  { minutes: 15, label: '15 minutes' },
+  { minutes: 30, label: '30 minutes' },
+  { minutes: 60, label: '1 hour' },
+  { minutes: 180, label: '3 hours' },
+  { minutes: 720, label: '12 hours' },
+  { minutes: 1440, label: '24 hours' },
+];
 
 const STANDARD_REGIONS = [
   { value: 'Vienna', label: 'Vienna (Central Europe)' },
@@ -70,6 +84,19 @@ export function AdminDashboardView({ onLogout, onExitAdmin }) {
   // Delete Server Modal state
   const [deletingServer, setDeletingServer] = useState(null);
   const [isSubmittingDelete, setIsSubmittingDelete] = useState(false);
+
+  // Mute Modal state
+  const [mutingServer, setMutingServer] = useState(null);
+  const [muteMinutes, setMuteMinutes] = useState(30);
+  const [muteReason, setMuteReason] = useState('');
+  const [isSubmittingMute, setIsSubmittingMute] = useState(false);
+  const [unmutingId, setUnmutingId] = useState(null);
+
+  // One-off address probe state
+  const [probeAddress, setProbeAddress] = useState('');
+  const [isProbing, setIsProbing] = useState(false);
+  const [probeResult, setProbeResult] = useState(null);
+  const [probeError, setProbeError] = useState(null);
 
   // Fetch servers from gateway
   const fetchServers = async (showLoading = false) => {
@@ -238,6 +265,71 @@ export function AdminDashboardView({ onLogout, onExitAdmin }) {
     }
   };
 
+  const handleMuteSubmit = async (e) => {
+    e.preventDefault();
+    if (!mutingServer) return;
+    setIsSubmittingMute(true);
+    try {
+      const res = await api.muteServer(
+        mutingServer.server_id,
+        muteMinutes,
+        muteReason.trim() || 'Muted from admin console'
+      );
+      if (res.error) {
+        showFeedback('error', res.error);
+      } else {
+        showFeedback('success', `Alerts for ${mutingServer.server_id} muted for ${muteMinutes} min.`);
+        setMutingServer(null);
+        setMuteReason('');
+        await fetchServers();
+      }
+    } catch (err) {
+      showFeedback('error', 'Failed to mute server alerts.');
+    } finally {
+      setIsSubmittingMute(false);
+    }
+  };
+
+  const handleUnmute = async (server) => {
+    setUnmutingId(server.server_id);
+    try {
+      const res = await api.unmuteServer(server.server_id);
+      if (res.error) {
+        showFeedback('error', res.error);
+      } else {
+        showFeedback('success', `Alerts for ${server.server_id} are on again.`);
+        await fetchServers();
+      }
+    } catch (err) {
+      showFeedback('error', 'Failed to unmute server alerts.');
+    } finally {
+      setUnmutingId(null);
+    }
+  };
+
+  // Ask one address what it is running. Nothing is saved: this is a look,
+  // not a registration.
+  const handleProbe = async (e) => {
+    e.preventDefault();
+    const address = probeAddress.trim();
+    if (!address || isProbing) return;
+    setIsProbing(true);
+    setProbeResult(null);
+    setProbeError(null);
+    try {
+      const res = await api.probeAddress(address);
+      if (res.error) {
+        setProbeError(res.error);
+      } else {
+        setProbeResult(res.data);
+      }
+    } catch (err) {
+      setProbeError('Could not reach the monitoring API.');
+    } finally {
+      setIsProbing(false);
+    }
+  };
+
   // Filtered servers based on search and region
   const filteredServers = useMemo(() => {
     return servers.filter((s) => {
@@ -403,6 +495,118 @@ export function AdminDashboardView({ onLogout, onExitAdmin }) {
         </Card>
       </div>
 
+      {/* One-off address probe */}
+      <Card>
+        <CardHeader className="border-b border-slate-100 dark:border-slate-800">
+          <CardTitle icon={Radar} className="text-base sm:text-lg">
+            Check a Server Address
+          </CardTitle>
+          <CardDescription>
+            Query any IP once for its ping, current players and capacity. Nothing is saved or monitored.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="p-4 space-y-3">
+          <form onSubmit={handleProbe} className="flex flex-col sm:flex-row gap-2.5">
+            <div className="flex-1">
+              <Input
+                icon={Globe}
+                type="text"
+                placeholder="IP or IP:Port, e.g. 54.36.173.60:27015"
+                value={probeAddress}
+                onChange={(e) => setProbeAddress(e.target.value)}
+                disabled={isProbing}
+                aria-label="Server address to check"
+              />
+            </div>
+            <Button
+              type="submit"
+              variant="primary"
+              icon={Radar}
+              loading={isProbing}
+              disabled={isProbing || !probeAddress.trim()}
+              className="text-xs font-semibold"
+            >
+              Check Server
+            </Button>
+          </form>
+
+          {probeError && (
+            <div className="p-3 rounded-xl border text-xs flex items-center gap-2 bg-rose-50 text-rose-800 border-rose-300 dark:bg-rose-950/60 dark:text-rose-300 dark:border-rose-500/40">
+              <AlertCircle className="w-4 h-4 flex-shrink-0" />
+              <span>{probeError}</span>
+            </div>
+          )}
+
+          {probeResult && !probeResult.reachable && (
+            <div className="p-3 rounded-xl border text-xs flex items-center gap-2 bg-amber-50 text-amber-800 border-amber-300 dark:bg-amber-950/40 dark:text-amber-300 dark:border-amber-500/40">
+              <AlertCircle className="w-4 h-4 flex-shrink-0" />
+              <span>
+                <span className="font-mono font-semibold">{probeResult.address}</span> did not answer. It may be
+                offline, or not a CS2 server.
+              </span>
+            </div>
+          )}
+
+          {probeResult?.reachable && (
+            <div
+              data-testid="probe-result"
+              className="grid grid-cols-2 sm:grid-cols-4 gap-3 p-3.5 rounded-xl border border-emerald-300/70 dark:border-emerald-500/30 bg-emerald-50/60 dark:bg-emerald-500/5"
+            >
+              <div className="col-span-2 sm:col-span-4 flex items-center justify-between gap-2">
+                <div className="min-w-0">
+                  <div className="font-semibold text-slate-900 dark:text-slate-100 truncate">
+                    {probeResult.server_name || 'Unnamed server'}
+                  </div>
+                  <div className="text-[11px] font-mono text-slate-500 dark:text-slate-400">
+                    {probeResult.address}
+                    {probeResult.map ? ` · ${probeResult.map}` : ''}
+                  </div>
+                </div>
+                <Badge variant="emerald" size="sm" dot>
+                  ONLINE
+                </Badge>
+              </div>
+              <div>
+                <span className="text-[11px] font-mono uppercase tracking-wider text-slate-500 dark:text-slate-400 block">
+                  Ping
+                </span>
+                <span className="text-lg font-bold font-mono text-slate-900 dark:text-slate-100">
+                  {Math.round(probeResult.ping_ms)} ms
+                </span>
+              </div>
+              <div>
+                <span className="text-[11px] font-mono uppercase tracking-wider text-slate-500 dark:text-slate-400 block">
+                  Playing now
+                </span>
+                <span className="text-lg font-bold font-mono text-slate-900 dark:text-slate-100 inline-flex items-center gap-1.5">
+                  <Users className="w-4 h-4 text-violet-500" />
+                  {probeResult.player_count}
+                </span>
+              </div>
+              <div>
+                <span className="text-[11px] font-mono uppercase tracking-wider text-slate-500 dark:text-slate-400 block">
+                  Capacity
+                </span>
+                <span className="text-lg font-bold font-mono text-slate-900 dark:text-slate-100">
+                  {probeResult.max_players}
+                </span>
+              </div>
+              <div>
+                <span className="text-[11px] font-mono uppercase tracking-wider text-slate-500 dark:text-slate-400 block">
+                  Load
+                </span>
+                <span className="text-lg font-bold font-mono text-slate-900 dark:text-slate-100">
+                  {probeResult.max_players > 0
+                    ? Math.round((probeResult.player_count / probeResult.max_players) * 100)
+                    : 0}
+                  %
+                </span>
+              </div>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
       {/* Main Server Fleet Table Card */}
       <Card>
         <CardHeader className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 dark:border-slate-800">
@@ -556,11 +760,38 @@ export function AdminDashboardView({ onLogout, onExitAdmin }) {
                         >
                           {server.status || 'UNKNOWN'}
                         </Badge>
+                        <MutedIndicator server={server} withLabel className="ml-2" />
                       </td>
 
                       {/* Actions */}
                       <td className="py-3.5 px-4 text-right">
                         <div className="flex items-center justify-end gap-1.5">
+                          {isMuted(server) ? (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              icon={Bell}
+                              loading={unmutingId === server.server_id}
+                              onClick={() => handleUnmute(server)}
+                              className="h-8 px-2.5 text-xs text-amber-600 dark:text-amber-400"
+                            >
+                              Unmute
+                            </Button>
+                          ) : (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              icon={BellOff}
+                              onClick={() => {
+                                setMutingServer(server);
+                                setMuteMinutes(30);
+                                setMuteReason('');
+                              }}
+                              className="h-8 px-2.5 text-xs text-slate-600 dark:text-slate-300 hover:text-amber-500"
+                            >
+                              Mute
+                            </Button>
+                          )}
                           <Button
                             variant="outline"
                             size="sm"
@@ -796,6 +1027,69 @@ export function AdminDashboardView({ onLogout, onExitAdmin }) {
                 disabled={isSubmittingEdit}
               >
                 Save Changes
+              </Button>
+            </div>
+          </form>
+        )}
+      </Modal>
+
+      {/* ========================================================================= */}
+      {/* 2b. MUTE ALERTS MODAL                                                      */}
+      {/* ========================================================================= */}
+      <Modal
+        isOpen={Boolean(mutingServer)}
+        onClose={() => !isSubmittingMute && setMutingServer(null)}
+        title="Mute Server Alerts"
+        subtitle={mutingServer ? `${mutingServer.server_name} · ${mutingServer.server_id}` : ''}
+        maxWidth="max-w-md"
+      >
+        {mutingServer && (
+          <form onSubmit={handleMuteSubmit} className="space-y-4 pt-1">
+            <p className="text-xs text-slate-600 dark:text-slate-300">
+              Telegram alerts for this server stay silent for the chosen time. Monitoring continues and a
+              mute icon shows on the dashboard.
+            </p>
+            <div>
+              <label className="block text-xs font-mono text-slate-600 dark:text-slate-400 mb-1.5 uppercase tracking-wider">
+                Mute For
+              </label>
+              <select
+                value={muteMinutes}
+                onChange={(e) => setMuteMinutes(Number(e.target.value))}
+                disabled={isSubmittingMute}
+                className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700/80 rounded-lg px-3 py-2 text-sm text-slate-900 dark:text-slate-100 outline-none focus:border-cyan-500 font-sans cursor-pointer"
+              >
+                {MUTE_DURATIONS.map((d) => (
+                  <option key={d.minutes} value={d.minutes}>
+                    {d.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs font-mono text-slate-600 dark:text-slate-400 mb-1.5 uppercase tracking-wider">
+                Reason (optional)
+              </label>
+              <Input
+                type="text"
+                placeholder="e.g. Scheduled maintenance"
+                value={muteReason}
+                onChange={(e) => setMuteReason(e.target.value)}
+                disabled={isSubmittingMute}
+                maxLength={500}
+              />
+            </div>
+            <div className="flex items-center justify-end gap-3 pt-3 border-t border-slate-100 dark:border-slate-800">
+              <Button
+                type="button"
+                variant="ghost"
+                onClick={() => setMutingServer(null)}
+                disabled={isSubmittingMute}
+              >
+                Cancel
+              </Button>
+              <Button type="submit" variant="primary" loading={isSubmittingMute} disabled={isSubmittingMute}>
+                Mute Alerts
               </Button>
             </div>
           </form>
