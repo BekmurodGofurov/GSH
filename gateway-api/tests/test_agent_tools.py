@@ -268,6 +268,64 @@ async def test_acknowledge_event_db_failure():
 
 
 # ══════════════════════════════════════════════════════
+# get_servers_overview: "show me all servers"
+# ══════════════════════════════════════════════════════
+
+def _srv(i, status="ONLINE", ping=30.0):
+    return {"server_id": f"10.0.0.{i}:27015", "server_name": f"S{i}", "status": status,
+            "ping_ms": ping if status == "ONLINE" else None}
+
+
+@pytest.mark.asyncio
+async def test_servers_overview_counts_online_and_offline():
+    pool, _ = make_pool(fetch_result=[_srv(1), _srv(2), _srv(3, "OFFLINE")])
+
+    result = await tools.get_servers_overview(pool)
+
+    assert (result["total_servers"], result["online_servers"], result["offline_servers"]) == (3, 2, 1)
+
+
+@pytest.mark.asyncio
+async def test_servers_overview_db_failure():
+    pool, _ = make_pool(error=RuntimeError("db down"))
+
+    with pytest.raises(RuntimeError):
+        await tools.get_servers_overview(pool)
+
+
+def test_overview_chart_has_every_server_with_offline_ones_marked():
+    from app.agent import router as agent_router
+
+    servers = [_srv(i, ping=10.0 * i) for i in range(1, 22)] + [_srv(22, "OFFLINE"), _srv(23, "OFFLINE")]
+    result = {"total_servers": 23, "online_servers": 21, "offline_servers": 2, "servers": servers}
+
+    chart = agent_router._build_chart("get_servers_overview", result)
+
+    assert len(chart.rows) == 23          # all of them, never a slice
+    assert chart.order == "overview"
+    assert "23" in chart.title and "21 online" in chart.title and "2 offline" in chart.title
+    assert [r.status for r in chart.rows].count("OFFLINE") == 2
+    # Offline servers sit at the end.
+    assert [r.status for r in chart.rows[-2:]] == ["OFFLINE", "OFFLINE"]
+
+
+def test_overview_chart_is_empty_without_servers():
+    from app.agent import router as agent_router
+    assert agent_router._build_chart("get_servers_overview", {"servers": []}) is None
+
+
+@pytest.mark.asyncio
+async def test_servers_overview_endpoint_sends_counts_and_chart(client, db):
+    db._fetch_result = [_srv(1), _srv(2, "OFFLINE")]
+
+    body = (await client.get("/api/v1/agent/tools/servers-overview")).json()
+
+    assert body["total_servers"] == 2 and body["offline_servers"] == 1
+    assert "servers" not in body              # the model gets counts, not a list to recite
+    assert len(body["chart"]["rows"]) == 2
+
+
+# ══════════════════════════════════════════════════════
 # get_muted_servers
 # ══════════════════════════════════════════════════════
 
