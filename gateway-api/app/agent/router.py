@@ -528,6 +528,16 @@ _P2_TOOLS = frozenset(
 )
 
 
+def _audit_target(call_args: dict) -> str:
+    """What a P2 call acted on, for the audit line: a server, a list, all, or an event."""
+    if call_args.get("all_servers"):
+        return "ALL_SERVERS"
+    ids = call_args.get("server_ids")
+    if ids:
+        return ",".join(ids)
+    return call_args.get("server_id") or call_args.get("event_id") or "-"
+
+
 async def _require_admin(request, tool_name: str) -> None:
     """Refuse a P2 tool unless this request carries an admin credential.
 
@@ -692,7 +702,7 @@ async def agent_ask(body: schemas.AskRequest, request: Request):
                 logger.info(
                     "[AUDIT] Action: %s | Target: %s | Result: %s | Source: agent",
                     tool_name.upper(),
-                    call_args.get("server_id") or call_args.get("event_id") or "-",
+                    _audit_target(call_args),
                     jsonable_encoder(tool_result),
                 )
         except HTTPException:

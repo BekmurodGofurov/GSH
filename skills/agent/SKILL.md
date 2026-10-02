@@ -35,6 +35,9 @@ Every agent tool must explicitly belong to one of two autonomy tiers:
 Tools that read data or execute safe diagnostic queries without modifying server or alert states.
 May execute immediately without user confirmation:
 - Read server metrics and status (`get_server_summary`)
+- Read the whole fleet's status with a chart (`get_servers_overview`)
+- Rank servers, best or worst, any count (`get_server_ranking`)
+- List muted servers (`get_muted_servers`)
 - Read incident events and anomalies (`get_recent_events`)
 - Calculate latency buckets (`get_average_latency`)
 - Trigger immediate live server polls (`poll_server_now`)
@@ -45,9 +48,15 @@ May execute immediately without user confirmation:
 Tools that modify server configuration, incident states, or suppress alerts.
 Must require explicit user confirmation before executing:
 - Temporarily silence server alerts (`mute_server_alerts`)
+- Lift mutes for one, several or all servers (`unmute_server_alerts`)
 - Acknowledge incident events (`acknowledge_event`)
 - Re-label incident root causes (`relabel_event`)
 - Send on-demand daily reports to Telegram (`send_daily_report`)
+
+Every P2 tool must also be added to `_P2_TOOLS` in `router.py` (a test enforces
+it): confirmation is not authorization, and that set is what makes the router
+require an admin credential before the tool runs. In the voice worker call
+`require_admin` first.
 
 ### Explain and Propose Workflow
 When diagnosing instability or incident events:

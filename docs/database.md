@@ -4,7 +4,7 @@
 
 Schema is defined in `init.sql` (applied automatically on first
 container start via Postgres's `docker-entrypoint-initdb.d`
-mechanism) plus one migration in `migrations/`. The `timescaledb`
+mechanism) plus the numbered files in `migrations/`. The `timescaledb`
 extension is enabled at the top of `init.sql`.
 
 ### `monitored_servers`
@@ -40,7 +40,7 @@ running this in production for any length of time.
 ### `server_events`
 
 Labeled incidents — anomalies detected by the ML pipeline, or manually
-relabeled by an admin via `PATCH /api/v1/events/{id}/label`. A regular
+relabeled by an admin via `POST /api/v1/events/{id}/label`. A regular
 table, not a hypertable, despite having a `time` column.
 
 | Column | Type | Notes |
@@ -59,6 +59,7 @@ table, not a hypertable, despite having a `time` column.
 | `servers_affected_same_region` | `INT` | Used to distinguish a single-server issue from a regional outage |
 | `diagnosis` | `JSONB` | Full root-cause-ml response |
 | `is_alerted` | `BOOLEAN` | Default `FALSE`; flipped once `alerting-service` sends a Telegram alert |
+| `is_acknowledged`, `acknowledged_by`, `acknowledged_at` | | Added by migration 002; an acknowledged event is not alerted again |
 
 `root_cause` values produced by `root-cause-ml`: `SERVER_CRASH`,
 `HIGH_LATENCY`, `DDOS_ATTACK`, `REGIONAL_OUTAGE`, `PLAYER_DROP`,
@@ -68,6 +69,27 @@ A partial index,
 `idx_server_events_label_source ON server_events(label_source, root_cause) WHERE root_cause IS NOT NULL AND root_cause NOT IN ('UNKNOWN','NORMAL')`,
 speeds up the query `root-cause-ml`'s training job uses to pull
 labeled examples.
+
+### `alert_silences`
+
+Temporary per-server alert mutes (migration 002). A server is muted while a
+row has `muted_until > NOW()`. Unmuting sets `muted_until = NOW()` — rows are
+ended, not deleted, so the history stays. Several overlapping rows are fine;
+the latest end wins.
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | `SERIAL` | Primary key |
+| `server_id` | `VARCHAR(64)` | FK → `monitored_servers`, `ON DELETE CASCADE` |
+| `muted_until` | `TIMESTAMPTZ` | Not null |
+| `muted_by` | `VARCHAR(64)` | `admin`, `agent`, … |
+| `reason` | `TEXT` | Optional |
+| `created_at` | `TIMESTAMPTZ` | Default `NOW()` |
+
+Indexed on `(server_id, muted_until)`. Written by the gateway's mute/unmute
+endpoints, the agent's `mute_server_alerts` / `unmute_server_alerts` tools and
+the Telegram bot; read by `alerting-service` (to stay quiet) and by the
+gateway (`muted_until` on every server row, and `get_muted_servers`).
 
 ### `daily_reports`
 
@@ -82,6 +104,9 @@ through `gateway-api`'s `/api/v1/insights/daily`.
 | `json_data` | `JSONB` | Structured data backing the report |
 
 ### Migrations
+
+`migrations/002_alert_controls.sql` adds the acknowledge columns and the
+`alert_silences` table.
 
 `migrations/001_add_anomaly_evidence.sql` re-adds (via `ADD COLUMN IF
 NOT EXISTS`) the `server_events` evidence columns already present in

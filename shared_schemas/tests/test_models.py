@@ -170,7 +170,7 @@ def test_probe_request_normalises_the_address(raw, expected):
 
 @pytest.mark.parametrize("bad", [
     "", "   ", "1.2.3.4:0", "1.2.3.4:70000", "1.2.3.4:abc",
-    "bad host", "http://1.2.3.4", "127.0.0.1", "0.0.0.0:27015", "169.254.1.1",
+    "bad host", "http://1.2.3.4", "redis", "localhost:27015", "timescaledb", "127.0.0.1", "0.0.0.0:27015", "169.254.1.1",
 ])
 def test_probe_request_rejects_unusable_addresses(bad):
     with pytest.raises(ValidationError):

@@ -1333,6 +1333,32 @@ async def test_executed_p2_action_writes_an_audit_line(client, db, admin_headers
 
 
 @pytest.mark.asyncio
+async def test_bulk_unmute_audit_line_names_every_server(client, db, admin_headers, caplog):
+    """Unmuting several servers must not be logged as Target: -."""
+    import logging
+
+    db._fetch_result = [{"server_id": "a:1"}, {"server_id": "b:1"}]
+    with caplog.at_level(logging.INFO, logger="gsh.gateway.agent"):
+        with patch("app.agent.router._client") as mock_client:
+            mock_client.models.generate_content.side_effect = _model_calls(
+                "unmute_server_alerts", {"server_ids": ["a:1", "b:1"]}, answer="Done."
+            )
+            response = await client.post(
+                "/api/v1/agent/ask", json={"question": "Unmute those two."}, headers=admin_headers
+            )
+
+    assert response.status_code == 200
+    line = [r.getMessage() for r in caplog.records if "[AUDIT]" in r.getMessage()][0]
+    assert "Action: UNMUTE_SERVER_ALERTS" in line and "Target: a:1,b:1" in line
+
+
+def test_audit_target_for_unmute_all():
+    from app.agent import router as agent_router
+    assert agent_router._audit_target({"all_servers": True}) == "ALL_SERVERS"
+    assert agent_router._audit_target({"event_id": 7}) == 7
+
+
+@pytest.mark.asyncio
 async def test_refused_p2_action_is_also_audited(client, db, caplog):
     """A denial is worth a line too -- that is the one worth noticing."""
     import logging

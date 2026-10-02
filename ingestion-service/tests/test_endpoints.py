@@ -173,3 +173,21 @@ async def test_probe_writes_nothing_to_the_database(db, client, monkeypatch):
     await client.post("/api/v1/probe", json={"address": "1.2.3.4"})
 
     assert db.queries == []
+
+
+async def test_probe_will_not_query_an_address_that_resolves_to_loopback():
+    import poller
+
+    # Direct: a name that resolves to loopback is refused without sending a query.
+    import asyncio
+    from unittest.mock import patch
+
+    async def fake_getaddrinfo(*a, **k):
+        return [(2, 2, 17, "", ("127.0.0.1", 27015))]
+
+    loop = asyncio.get_running_loop()
+    with patch.object(loop, "getaddrinfo", fake_getaddrinfo), patch("poller.a2s.ainfo") as ainfo:
+        result = await poller.probe_address("sneaky.example.com:27015")
+
+    assert result == {"address": "sneaky.example.com:27015", "reachable": False}
+    ainfo.assert_not_called()
