@@ -2,6 +2,7 @@ import asyncio
 import json
 import os
 import logging
+from typing import Literal
 from fastapi import APIRouter, HTTPException, Depends, Query, Request
 from fastapi.encoders import jsonable_encoder
 from google import genai
@@ -63,7 +64,10 @@ _TOOL_REGISTRY = [
             "stable', for comparing servers, and whenever the user wants a "
             "chart of server performance. Do NOT answer 'best server' from "
             "get_server_summary: that only holds one momentary ping sample per "
-            "server, which changes between sweeps."
+            "server, which changes between sweeps. Pass `count` when the user "
+            "names a number ('top 10', '3 worst') and order='worst' for the "
+            "worst servers; with no number it shows the best 5. If the user "
+            "says 0 or a negative number, pass it as-is and relay the note."
         ),
         "fn": tools.get_server_ranking,
         "schema": schemas.RankingQuery,
@@ -73,7 +77,18 @@ _TOOL_REGISTRY = [
                 "hours": {
                     "type": "integer",
                     "description": "Window to judge the servers over, in hours (1–24). Default is 1.",
-                }
+                },
+                "count": {
+                    "type": "integer",
+                    "description": (
+                        "How many servers to show, exactly as the user said it "
+                        "('top 10' -> 10, 'all' -> 1000). Omit for the default of 5."
+                    ),
+                },
+                "order": {
+                    "type": "string",
+                    "description": "'best' (default) or 'worst' for the worst-performing servers.",
+                },
             },
             "required": [],
         },
@@ -94,6 +109,18 @@ _TOOL_REGISTRY = [
             "properties": {},
             "required": [],
         },
+    },
+    {
+        "name": "get_muted_servers",
+        "description": (
+            "Lists the servers whose alerts are muted right now, with when each mute "
+            "ends and why. Use this for 'which servers are muted?' and ALWAYS before "
+            "unmute_server_alerts, to find the exact server_id the user means (match "
+            "their words against the server names). If several match, ask which one."
+        ),
+        "fn": tools.get_muted_servers,
+        "schema": None,
+        "parameters": {"type": "object", "properties": {}, "required": []},
     },
     {
         "name": "get_recent_events",
@@ -214,6 +241,32 @@ _TOOL_REGISTRY = [
         },
     },
     {
+        "name": "unmute_server_alerts",
+        "description": (
+            "Cancels active alert mutes so Telegram alerts resume immediately. One call "
+            "handles any number of servers: pass `server_ids` for several (e.g. 'the "
+            "first three'), or all_servers=true for 'unmute everything'. Never loop one "
+            "server at a time. Call get_muted_servers first to get exact server_ids."
+        ),
+        "fn": tools.unmute_server_alerts,
+        "schema": schemas.UnmuteAlertsRequest,
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "server_ids": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Exact server IDs to unmute (e.g. ['188.212.101.109:27015']).",
+                },
+                "all_servers": {
+                    "type": "boolean",
+                    "description": "True to unmute every muted server at once.",
+                },
+            },
+            "required": [],
+        },
+    },
+    {
         "name": "poll_server_now",
         "description": (
             "Immediately triggers a fresh health check for a specific server, bypassing "
@@ -327,17 +380,31 @@ _SYSTEM_INSTRUCTION = (
     "\n- 'Which server is best / fastest / most stable?', comparing servers, or any "
     "request for a performance chart -> get_server_ranking."
     "\n- Questions about particular servers or the list itself -> get_server_summary."
+    "\n- An overview of the fleet or a request for all servers: list EVERY server the tool "
+    "returned (say how many there are first), never a sample or the first few."
     "\n\nAnswering about the best server:"
     "\nThe ranking tool sorts on stability first (crashes, uptime, ping jitter) and then "
     "average ping, so the best server is not always the one with the lowest ping. Name the "
     "winner and give the reasons the tool returned -- how many times it dropped out, how "
     "steady its ping is -- and say so explicitly when it wins despite a higher ping."
+    "\n- Which servers are muted, or unmuting a server -> get_muted_servers first. Never say you "
+    "cannot see mutes. Match the user's words ('the seven one') to the muted servers' names, "
+    "then call unmute_server_alerts ONCE once they confirm: server_ids for the ones they named "
+    "('the first three' = the first three of the list), all_servers=true for 'all of them'. "
+    "Never unmute one server per turn."
+    "\n\nHow many servers a ranking shows:"
+    "\nWith no number the ranking shows the best 5. Pass the user's number as `count` "
+    "('top 10', '3 worst servers') and order='worst' for the worst ones. Report only the "
+    "servers in `shown`. If `count_note` is present, say it first and plainly -- e.g. when "
+    "50 were asked for and only 23 can be ranked, say there are 23 and that you are showing "
+    "those. A request for 0 or a negative number is not valid: relay the note and do not "
+    "list servers."
     "\n\nAutonomy Levels:"
     "\n- P1 (Read / Diagnose / Live Poll): Execute immediately without waiting for confirmation: "
     "get_fleet_overview, get_server_ranking, get_server_summary, get_recent_events, "
-    "get_average_latency, poll_server_now, generate_daily_report."
+    "get_average_latency, get_muted_servers, poll_server_now, generate_daily_report."
     "\n- P2 (Write / State Changes): Require user confirmation before executing: "
-    "mute_server_alerts, acknowledge_event, relabel_event."
+    "mute_server_alerts, unmute_server_alerts, acknowledge_event, relabel_event."
     "\n\nExplain and Propose Workflow:"
     "\nWhen asked 'why is server X unstable?' or about server problems, fetch recent events and metrics. "
     "Explain the diagnosis clearly, and PROPOSE the appropriate P2 action (e.g. muting alerts for 30 minutes). "
@@ -350,28 +417,27 @@ _SYSTEM_INSTRUCTION = (
     "Never speculate, guess, or invent server metrics; strictly base answers on tool outputs."
 )
 
-# How many bars an inline chart carries. Past ten the labels collide and
-# the chart stops being readable in the panel.
-_CHART_MAX_ROWS = 10
-
-
 def _build_chart(tool_name: str, tool_result) -> schemas.ChartPayload | None:
     """Build the inline chart for a tool result, or None when none belongs.
 
     Only the ranking tool produces one. Charts used to be attached to
     every server lookup, so asking "how many servers are online?" drew a
     ten-bar latency chart above a one-line answer. A chart now appears
-    only where the question was itself a comparison.
+    only where the question was itself a comparison -- and it holds
+    exactly the servers the user asked for (`shown`), no more, no fewer.
     """
     if tool_name != "get_server_ranking" or not isinstance(tool_result, dict):
         return None
 
-    ranked = tool_result.get("ranked") or []
-    if not ranked:
+    shown = tool_result.get("shown") or []
+    # One server is not a comparison: the sentence says everything a
+    # single bar would.
+    if len(shown) < 2:
         return None
 
+    order = tool_result.get("order") or "best"
     rows = []
-    for row in ranked[:_CHART_MAX_ROWS]:
+    for i, row in enumerate(shown):
         crashes = row.get("crash_count") or 0
         rows.append(
             schemas.ChartRow(
@@ -381,13 +447,16 @@ def _build_chart(tool_name: str, tool_result) -> schemas.ChartPayload | None:
                 # The bar is average ping; the crash count is what the
                 # ranking actually turned on, so it travels with the bar.
                 note=f"{crashes} crash(es)" if crashes else None,
+                # `shown` starts with the best (or, for "worst", the worst).
+                highlight=i == 0,
             )
         )
 
     hours = tool_result.get("window_hours", 1)
-    window = f"{hours}h" if hours != 1 else "1h"
+    which = "best" if order == "best" else "worst"
     return schemas.ChartPayload(
-        title=f"Average ping over {window} — best first",
+        title=f"{len(rows)} {which} server{'s' if len(rows) != 1 else ''} · average ping over {hours}h",
+        order=order,
         unit="ms",
         rows=rows,
     )
@@ -404,7 +473,9 @@ def _get_db_pool():
 # The tools that change state. Asking the model nicely is not what keeps
 # these safe -- a user who says "yes, do it" gets past the prompt every
 # time. The check below is what actually holds.
-_P2_TOOLS = frozenset({"mute_server_alerts", "acknowledge_event", "relabel_event"})
+_P2_TOOLS = frozenset(
+    {"mute_server_alerts", "unmute_server_alerts", "acknowledge_event", "relabel_event"}
+)
 
 
 async def _require_admin(request, tool_name: str) -> None:
@@ -454,9 +525,27 @@ async def fleet_overview():
 
 
 @router.get("/api/v1/agent/tools/server-ranking")
-async def server_ranking(hours: int = Query(1, ge=1, le=24)):
-    """Servers ranked by stability then latency, with the reasons behind it."""
-    return await tools.get_server_ranking(_get_db_pool(), hours=hours)
+async def server_ranking(
+    hours: int = Query(1, ge=1, le=24),
+    count: int | None = Query(None),
+    order: Literal["best", "worst"] = Query("best"),
+):
+    """Servers ranked by stability then latency, with the reasons behind it.
+
+    Carries the ready-made `chart` too, so the voice worker draws the same
+    bars the typed channel does instead of rebuilding them.
+    """
+    result = await tools.get_server_ranking(
+        _get_db_pool(), hours=hours, count=count, order=order
+    )
+    chart = _build_chart("get_server_ranking", result)
+    return {**result, "chart": chart.model_dump() if chart else None}
+
+
+@router.get("/api/v1/agent/tools/muted-servers")
+async def muted_servers():
+    """Servers with an active alert mute, for the voice agent."""
+    return await tools.get_muted_servers(_get_db_pool())
 
 
 @router.post("/api/v1/agent/ask", response_model=schemas.AskResponse)
@@ -583,6 +672,17 @@ async def agent_ask(body: schemas.AskRequest, request: Request):
                 system_instruction=(
                     system_instruction
                     + " Answer using only the tool data provided in the message."
+                    + (
+                        # The chart already lists every server with its ping and
+                        # crash count; repeating them as a bulleted essay above it
+                        # buries the chart. One sentence, plus any count_note.
+                        " A chart listing these servers is shown to the user right "
+                        "below your answer. Reply in ONE or TWO short sentences: do not "
+                        "list or describe the individual servers. If the data has a "
+                        "count_note, state it."
+                        if chart
+                        else ""
+                    )
                 ),
                 temperature=0.1,
             ),

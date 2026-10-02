@@ -31,9 +31,27 @@ FLEET = {
 }
 
 
-def ranking(*servers):
+def ranking(*servers, with_chart=True):
+    """What the gateway's server-ranking endpoint returns, chart included."""
+    rows = [
+        {
+            "label": s["server_name"],
+            "value": s["avg_ping"],
+            "status": "ONLINE",
+            "note": f"{s['crash_count']} crash(es)" if s["crash_count"] else None,
+            "highlight": i == 0,
+        }
+        for i, s in enumerate(servers)
+    ]
+    chart = (
+        {"title": f"{len(rows)} best servers · average ping over 1h", "order": "best", "unit": "ms", "rows": rows}
+        if with_chart and len(rows) > 1
+        else None
+    )
     return {
         "window_hours": 1,
+        "chart": chart,
+        "shown": list(servers),
         "ranked": list(servers),
         "excluded": [],
         "best": servers[0] if servers else None,
@@ -134,7 +152,10 @@ async def test_server_ranking_chart_agrees_with_the_answer(ctx, room):
     # The top bar is the server the answer names.
     assert chart["rows"][0]["label"] == json.loads(result)["best"]["server_name"]
     # Crash counts ride with the bars, so a taller "winning" bar reads correctly.
-    assert chart["rows"][1]["note"] == "2 crash"
+    assert chart["rows"][1]["note"] == "2 crash(es)"
+    # The winner is set apart, and the chart is not part of what the model reads.
+    assert chart["rows"][0]["highlight"] is True
+    assert "chart" not in json.loads(result)
 
 
 @pytest.mark.asyncio
@@ -156,11 +177,19 @@ async def test_server_ranking_clamps_a_hallucinated_window(ctx):
         await worker.get_server_ranking(ctx, hours=9999)
         captured["params"] = mocked.call_args.kwargs["params"]
 
-    assert captured["params"] == {"hours": 24}
+    assert captured["params"] == {"hours": 24, "order": "best"}
 
     with gateway_returns(payload) as mocked:
         await worker.get_server_ranking(ctx, hours=0)
-        assert mocked.call_args.kwargs["params"] == {"hours": 1}
+        assert mocked.call_args.kwargs["params"] == {"hours": 1, "order": "best"}
+
+
+@pytest.mark.asyncio
+async def test_server_ranking_passes_the_count_and_order_asked_for(ctx):
+    with gateway_returns(ranking(server("Solid", 60.0), server("Flaky", 25.0))) as mocked:
+        await worker.get_server_ranking(ctx, hours=1, count=3, order="worst")
+
+    assert mocked.call_args.kwargs["params"] == {"hours": 1, "count": 3, "order": "worst"}
 
 
 @pytest.mark.asyncio
@@ -379,6 +408,72 @@ async def test_admin_can_mute():
         )
 
     assert "muted for 30 minutes" in result
+
+
+@pytest.mark.asyncio
+async def test_viewer_cannot_unmute(ctx):
+    with gateway_returns({"status": "unmuted"}) as mocked:
+        result = await worker.unmute_server_alerts(ctx, all_servers=True)
+
+    assert "admin login" in result
+    assert mocked.call_count == 0
+
+
+@pytest.mark.asyncio
+async def test_admin_unmutes_several_servers_in_one_request():
+    response = MagicMock()
+    response.status_code = 200
+    response.json.return_value = {"unmuted": ["a:1", "b:1", "c:1"]}
+    post = AsyncMock(return_value=response)
+
+    with patch("httpx.AsyncClient.post", post):
+        result = await worker.unmute_server_alerts(AdminCtx(), server_ids=["a:1", "b:1", "c:1"])
+
+    assert post.call_count == 1
+    assert "3 server(s)" in result
+
+
+@pytest.mark.asyncio
+async def test_admin_can_unmute_everything():
+    response = MagicMock()
+    response.status_code = 200
+    response.json.return_value = {"unmuted": ["a:1", "b:1"]}
+    post = AsyncMock(return_value=response)
+
+    with patch("httpx.AsyncClient.post", post):
+        await worker.unmute_server_alerts(AdminCtx(), all_servers=True)
+
+    assert post.call_args.kwargs["json"]["all_servers"] is True
+
+
+@pytest.mark.asyncio
+async def test_unmute_needs_a_target():
+    with patch("httpx.AsyncClient.post", AsyncMock()) as post:
+        result = await worker.unmute_server_alerts(AdminCtx())
+
+    assert "which servers" in result
+    assert post.call_count == 0
+
+
+@pytest.mark.asyncio
+async def test_unmute_with_nothing_muted():
+    response = MagicMock()
+    response.status_code = 404
+
+    with patch("httpx.AsyncClient.post", AsyncMock(return_value=response)):
+        result = await worker.unmute_server_alerts(AdminCtx(), all_servers=True)
+
+    assert "None of those" in result
+
+
+@pytest.mark.asyncio
+async def test_anyone_can_ask_which_servers_are_muted(ctx):
+    """Reading mutes is P1: it needs no login, and the model needs it to unmute."""
+    payload = {"muted_count": 1, "muted_servers": [{"server_id": "a:1", "server_name": "Seven"}]}
+    with gateway_returns(payload):
+        result = await worker.get_muted_servers(ctx)
+
+    assert json.loads(result)["muted_servers"][0]["server_name"] == "Seven"
 
 
 @pytest.mark.asyncio

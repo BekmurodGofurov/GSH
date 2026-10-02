@@ -425,3 +425,68 @@ async def test_get_livekit_token_generates_isolated_rooms(monkeypatch, client):
     room1 = resp1.json()["room"]
     room2 = resp2.json()["room"]
     assert room1 != room2, "Each session must receive a unique room for isolation"
+
+
+# --- probe ----------------------------------------------------------------
+
+class _FakeProbeResponse:
+    def __init__(self, status_code=200, body=None):
+        self.status_code = status_code
+        self._body = body or {}
+
+    def json(self):
+        return self._body
+
+
+def _fake_async_client(response=None, error=None):
+    import httpx
+
+    class _Client:
+        def __init__(self, *a, **k):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *exc):
+            return False
+
+        async def post(self, url, json=None):
+            if error:
+                raise httpx.ConnectError("down")
+            return response
+
+    return _Client
+
+
+async def test_probe_needs_an_admin(client):
+    response = await client.post("/api/v1/probe", json={"address": "1.2.3.4"})
+
+    assert response.status_code == 403
+
+
+async def test_probe_returns_what_the_server_reported(client, admin_headers, monkeypatch):
+    import main
+    reply = {"address": "1.2.3.4:27015", "reachable": True, "ping_ms": 40.0,
+             "player_count": 9, "max_players": 24}
+    monkeypatch.setattr(main.httpx, "AsyncClient", _fake_async_client(_FakeProbeResponse(200, reply)))
+
+    response = await client.post("/api/v1/probe", json={"address": "1.2.3.4"}, headers=admin_headers)
+
+    assert response.status_code == 200
+    assert response.json()["player_count"] == 9
+
+
+async def test_probe_rejects_a_bad_address(client, admin_headers):
+    response = await client.post("/api/v1/probe", json={"address": "nope nope"}, headers=admin_headers)
+
+    assert response.status_code == 422
+
+
+async def test_probe_reports_ingestion_down(client, admin_headers, monkeypatch):
+    import main
+    monkeypatch.setattr(main.httpx, "AsyncClient", _fake_async_client(error=True))
+
+    response = await client.post("/api/v1/probe", json={"address": "1.2.3.4"}, headers=admin_headers)
+
+    assert response.status_code == 503

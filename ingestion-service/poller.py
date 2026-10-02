@@ -137,6 +137,31 @@ async def poll_single_server(server_row, timeout: float = 1.5):
 
     return {"server_id": server_id, "status": status, "ping": latency_ms, "players": player_count, "tick_rate": tick_rate}
 
+async def probe_address(address: str, timeout: float = 3.0):
+    """Query one address once and report what it says. Writes nothing.
+
+    Used by the admin console to look at a server before (or without)
+    adding it to monitoring, so it stays out of the database, Redis and
+    the polling loop.
+    """
+    ip, port_str = address.rsplit(":", 1)
+    try:
+        _t0 = time.perf_counter()
+        info = await a2s.ainfo((ip, int(port_str)), timeout=timeout)
+        latency_ms = round((time.perf_counter() - _t0) * 1000, 2)
+    except Exception:
+        return {"address": address, "reachable": False}
+    return {
+        "address": address,
+        "reachable": True,
+        "server_name": info.server_name,
+        "map": getattr(info, "map_name", None),
+        "ping_ms": latency_ms,
+        "player_count": info.player_count,
+        "max_players": info.max_players,
+    }
+
+
 async def start_polling_loop():
     logger.info(" Dynamic UDP A2S Monitoring background task started...")
     while True:

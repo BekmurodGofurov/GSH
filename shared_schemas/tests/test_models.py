@@ -8,6 +8,7 @@ from shared_schemas.models import (
     AnomalyPayload,
     EventPayload,
     MetricPayload,
+    ProbeRequest,
     ServerMetric,
 )
 
@@ -154,3 +155,23 @@ def test_alert_payload_carries_root_cause():
 def test_alert_payload_requires_root_cause():
     with pytest.raises(ValidationError):
         AlertPayload(metric=_metric(), anomaly_score=0.95)
+
+
+# --- ProbeRequest ---------------------------------------------------------
+
+@pytest.mark.parametrize("raw,expected", [
+    ("54.36.173.60", "54.36.173.60:27015"),
+    ("54.36.173.60:27016", "54.36.173.60:27016"),
+    ("  play.example.com  ", "play.example.com:27015"),
+])
+def test_probe_request_normalises_the_address(raw, expected):
+    assert ProbeRequest(address=raw).address == expected
+
+
+@pytest.mark.parametrize("bad", [
+    "", "   ", "1.2.3.4:0", "1.2.3.4:70000", "1.2.3.4:abc",
+    "bad host", "http://1.2.3.4", "127.0.0.1", "0.0.0.0:27015", "169.254.1.1",
+])
+def test_probe_request_rejects_unusable_addresses(bad):
+    with pytest.raises(ValidationError):
+        ProbeRequest(address=bad)

@@ -21,7 +21,15 @@ LATEST_SERVERS_QUERY = """
         lm.player_count,
         lm.max_players,
         lm.ping_ms::double precision AS ping_ms,
-        lm.time AS last_metric_at
+        lm.time AS last_metric_at,
+        -- Non-NULL while an alert silence is active. The dashboard draws a
+        -- mute icon from it, whoever set the mute (admin page or agent).
+        (
+            SELECT MAX(s.muted_until)
+            FROM alert_silences s
+            WHERE s.server_id = ms.server_id
+              AND s.muted_until > NOW()
+        ) AS muted_until
     FROM monitored_servers ms
     LEFT JOIN LATERAL (
         SELECT time, player_count, max_players, ping_ms
@@ -150,4 +158,23 @@ SERVER_RANKING_QUERY = """
     ) lm ON TRUE
     WHERE wm.avg_ping IS NOT NULL
     ORDER BY wm.avg_ping ASC;
+"""
+
+# Servers whose alerts are silenced right now, with when it ends and why.
+# One row per server even if several silences overlap (the latest end wins),
+# so "which servers are muted?" -- and "unmute the one called X" -- has a
+# complete, exact list to work from.
+MUTED_SERVERS_QUERY = """
+    SELECT
+        ms.server_id,
+        ms.server_name,
+        ms.region,
+        MAX(s.muted_until) AS muted_until,
+        (ARRAY_AGG(s.muted_by ORDER BY s.muted_until DESC))[1] AS muted_by,
+        (ARRAY_AGG(s.reason ORDER BY s.muted_until DESC))[1] AS reason
+    FROM alert_silences s
+    JOIN monitored_servers ms ON ms.server_id = s.server_id
+    WHERE s.muted_until > NOW()
+    GROUP BY ms.server_id, ms.server_name, ms.region
+    ORDER BY ms.server_name;
 """

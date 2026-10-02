@@ -113,6 +113,73 @@ describe('AskPanel', () => {
     expect(screen.getByText('2 crash(es)')).toBeInTheDocument();
   });
 
+  it('draws exactly the servers asked for and sets the winner apart', async () => {
+    const rows = Array.from({ length: 12 }, (_, i) => ({
+      label: `Server ${i + 1}`,
+      value: 20 + i,
+      status: 'ONLINE',
+      note: null,
+      highlight: i === 0,
+    }));
+    api.askAgent.mockResolvedValue({
+      data: {
+        answer: 'Here are the top 12.',
+        tool_used: 'get_server_ranking',
+        chart: { chartType: 'bar', title: '12 best servers · average ping over 1h', order: 'best', unit: 'ms', rows },
+      },
+      error: null,
+    });
+    const user = userEvent.setup();
+    renderPanel();
+
+    await user.type(screen.getByPlaceholderText(/Ask about servers/i), 'top 12 servers{Enter}');
+    await screen.findByText(/Here are the top 12/);
+
+    // No silent cap: all twelve bars are there, and only the first is starred.
+    // (the panel is portalled to <body>, so query there, not the render container)
+    expect(document.body.querySelectorAll('svg[role="img"] rect')).toHaveLength(12);
+    expect(screen.getAllByText(/★/)).toHaveLength(1);
+    expect(screen.getByText(/★ Server 1/)).toBeInTheDocument();
+  });
+
+  it('marks a worst-servers chart as such', async () => {
+    api.askAgent.mockResolvedValue({
+      data: {
+        answer: 'The 2 worst servers.',
+        tool_used: 'get_server_ranking',
+        chart: {
+          chartType: 'bar',
+          title: '2 worst servers · average ping over 1h',
+          order: 'worst',
+          unit: 'ms',
+          rows: [
+            { label: 'Bad', value: 200, highlight: true },
+            { label: 'Meh', value: 120, highlight: false },
+          ],
+        },
+      },
+      error: null,
+    });
+    const user = userEvent.setup();
+    renderPanel();
+
+    await user.type(screen.getByPlaceholderText(/Ask about servers/i), 'worst 2{Enter}');
+
+    expect(await screen.findByText(/2 worst servers · average ping/)).toBeInTheDocument();
+    expect(screen.getByText(/★ Bad/)).toBeInTheDocument();
+  });
+
+  it('is themed for light mode as well as dark', () => {
+    renderPanel();
+    const panel = document.body.querySelector('.fixed.inset-y-0.right-0');
+
+    // Every dark surface carries a light counterpart rather than being
+    // dark-only.
+    expect(panel.className).toMatch(/bg-slate-50/);
+    expect(panel.className).toMatch(/dark:bg-\[#080e1a\]/);
+    expect(panel.innerHTML).not.toMatch(/class="[^"]*(^|\s)bg-\[#080e1a\]/);
+  });
+
   it('keeps the typed conversation when a voice session starts', async () => {
     api.askAgent.mockResolvedValue({
       data: { answer: 'All 23 servers are online.', tool_used: 'get_fleet_overview', chart: null },
