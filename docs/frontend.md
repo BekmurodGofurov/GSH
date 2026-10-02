@@ -17,7 +17,7 @@ client/src/
   index.css              Tailwind layers, scrollbars, .glass-panel, grid bg
   components/
     layout/              Header, Sidebar, Layout (the app shell)
-    common/              Button, Badge, Card, Modal, AskPanel, drawers…
+    common/              Button, Badge, Card, Modal, AskPanel, MutedIndicator, drawers…
     dashboard/           ServerCard, KpiStatsGrid, charts, ServerDetailModal
     views/               one component per screen (Overview, Servers, …)
   hooks/
@@ -85,7 +85,8 @@ session cookie issued by `POST /api/v1/admin/login`.
 
 The routes it covers mirror [api.md](api.md): servers, metrics, events,
 the four analytics endpoints, daily insights, admin login/logout/me,
-server CRUD, and `askAgent()` for the agent panel.
+server CRUD, `muteServer()` / `unmuteServer()`, `probeAddress()`, and
+`askAgent()` / `getLivekitToken()` for the agent panel.
 
 ## Environment variables
 
@@ -114,6 +115,12 @@ password behind that prefix.
 `VITE_ADMIN_PATH` and switches `currentView` to `admin`. It listens for
 `popstate`/`hashchange`, so the back button works.
 
+The console lists the fleet with edit/delete, **Mute / Unmute** per server (a
+duration picker; muted rows show a `MUTED` badge), and a **Check a Server
+Address** card: type an IP or `IP:Port` and it queries that address once for
+ping, players now, capacity and load. The probe is read-only — nothing is
+registered or stored.
+
 This is **obscurity, not security**: the path is in the bundle, and the
 actual protection is `gateway-api`'s `verify_api_key` plus the session
 cookie. Every admin route on the backend is guarded server-side — the
@@ -134,9 +141,29 @@ Shared visual patterns live in `index.css`: `.glass-panel`,
 `.bg-grid-pattern`, the custom 6px scrollbars, and the toast/radar
 keyframes.
 
+### Muted servers
+
+`gateway-api` adds `muted_until` to every server row (and to the 3-second
+WebSocket push). `MutedIndicator` (`components/common/`) renders a
+bell-with-a-slash when that timestamp is in the future, and nothing
+otherwise; it is used on server cards, the Servers table and the admin
+table. It does not matter who set the mute — admin page, agent or Telegram.
+
+### The Ask panel
+
+`AskPanel` is one conversation: typed questions go to `POST /agent/ask`,
+spoken ones through LiveKit, and both append to the same list. It is fully
+themed for light and dark (every dark surface has a light counterpart).
+Charts are SVG drawn in `BarChart`: ranked charts highlight the first bar
+(★, gradient; red for `order: worst`), the overview chart colours bars by
+status and shows `OFFLINE` for down servers. Long labels are truncated.
+Voice: muting the mic stops the track (`stopMicTrackOnMute`), the **End**
+button hangs up, and a `{type:"stop"}` data message from the agent does the
+same.
+
 ### Overlays must be portaled
 
-`AskPanel` renders its backdrop and panel into `document.body` with
+`AskPanel` and `NotificationsDrawer` render their backdrop and panel into `document.body` with
 `createPortal`. This is not cosmetic: the app shell puts views inside
 `<main class="… space-y-6">`, and that utility applies
 `margin-top: 1.5rem` to every child after the first — including
@@ -144,8 +171,7 @@ keyframes.
 24px down and ends 24px short, leaving the sticky header uncovered at
 the top of the screen.
 
-`NotificationsDrawer` and `Modal` still render in place and have that
-24px offset today.
+`Modal` still renders in place and has that 24px offset today.
 
 ## Tests
 

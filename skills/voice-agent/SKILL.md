@@ -55,9 +55,11 @@ async def get_server_summary(context: RunContext[WorkerCtx]) -> str:
 Tools must be marked as P1 or P2:
 
 1. **Level P1 (Autonomous Read / Diagnostic)**:
-   - Tool executes immediately upon user request (e.g. `get_server_summary`, `get_recent_events`, `poll_server_now`).
+   - Tool executes immediately upon user request (e.g. `get_server_summary`, `get_servers_overview`, `get_muted_servers`, `get_recent_events`, `poll_server_now`).
+   - Read tools reach the data through `GET /api/v1/agent/tools/*` on the gateway; never re-implement a query in the worker. Charts are built by the gateway and only published by the worker.
 2. **Level P2 (Controlled Write / State Changes)**:
    - Tool description must note `[P2 action - requires user confirmation]`.
+   - Call `require_admin(context, "ACTION")` first and return its refusal for a non-admin listener; confirmation is not authorization.
    - System prompt instructs the model to explain the diagnosis, propose the action, and wait for confirmation ("yes", "confirm", "proceed") before invoking the tool.
    - The tool implementation must emit an audit log entry:
      ```python

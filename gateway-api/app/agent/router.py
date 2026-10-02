@@ -56,6 +56,18 @@ _TOOL_REGISTRY = [
         },
     },
     {
+        "name": "get_servers_overview",
+        "description": (
+            "Status of the WHOLE fleet: total servers, how many are online and offline, "
+            "plus a status chart of every server. Use this for 'show me all servers', "
+            "'fleet overview', 'status of all servers'. The chart already lists every "
+            "server, so answer with the three counts only -- do not list the servers."
+        ),
+        "fn": tools.get_servers_overview,
+        "schema": None,
+        "parameters": {"type": "object", "properties": {}, "required": []},
+    },
+    {
         "name": "get_server_ranking",
         "description": (
             "Ranks servers over a time window by stability first (crashes, "
@@ -380,8 +392,10 @@ _SYSTEM_INSTRUCTION = (
     "\n- 'Which server is best / fastest / most stable?', comparing servers, or any "
     "request for a performance chart -> get_server_ranking."
     "\n- Questions about particular servers or the list itself -> get_server_summary."
-    "\n- An overview of the fleet or a request for all servers: list EVERY server the tool "
-    "returned (say how many there are first), never a sample or the first few."
+    "\n- 'Show me all servers', a fleet overview or the status of all servers -> "
+    "get_servers_overview. A status chart of every server is drawn for the user, so reply "
+    "with ONE sentence: the total, how many are online and how many are offline. Do not "
+    "list the servers."
     "\n\nAnswering about the best server:"
     "\nThe ranking tool sorts on stability first (crashes, uptime, ping jitter) and then "
     "average ping, so the best server is not always the one with the lowest ping. Name the "
@@ -401,7 +415,7 @@ _SYSTEM_INSTRUCTION = (
     "list servers."
     "\n\nAutonomy Levels:"
     "\n- P1 (Read / Diagnose / Live Poll): Execute immediately without waiting for confirmation: "
-    "get_fleet_overview, get_server_ranking, get_server_summary, get_recent_events, "
+    "get_fleet_overview, get_servers_overview, get_server_ranking, get_server_summary, get_recent_events, "
     "get_average_latency, get_muted_servers, poll_server_now, generate_daily_report."
     "\n- P2 (Write / State Changes): Require user confirmation before executing: "
     "mute_server_alerts, unmute_server_alerts, acknowledge_event, relabel_event."
@@ -417,6 +431,40 @@ _SYSTEM_INSTRUCTION = (
     "Never speculate, guess, or invent server metrics; strictly base answers on tool outputs."
 )
 
+def _build_overview_chart(tool_result: dict) -> schemas.ChartPayload | None:
+    """One bar per server, every server, coloured by status in the panel."""
+    servers = tool_result.get("servers") or []
+    if not servers:
+        return None
+
+    def sort_key(s):
+        online = (s.get("status") or "").upper() == "ONLINE"
+        # Online first, fastest first; offline servers last, by name.
+        return (not online, s.get("ping_ms") or 0.0 if online else 0.0, s.get("server_name") or "")
+
+    rows = []
+    for s in sorted(servers, key=sort_key):
+        online = (s.get("status") or "").upper() == "ONLINE"
+        rows.append(
+            schemas.ChartRow(
+                label=s.get("server_name") or s.get("server_id", ""),
+                value=round(s.get("ping_ms") or 0.0, 1) if online else 0.0,
+                status="ONLINE" if online else "OFFLINE",
+                note=None if online else "offline",
+            )
+        )
+    total = tool_result.get("total_servers", len(rows))
+    return schemas.ChartPayload(
+        title=(
+            f"All {total} servers · {tool_result.get('online_servers', 0)} online · "
+            f"{tool_result.get('offline_servers', 0)} offline"
+        ),
+        order="overview",
+        unit="ms",
+        rows=rows,
+    )
+
+
 def _build_chart(tool_name: str, tool_result) -> schemas.ChartPayload | None:
     """Build the inline chart for a tool result, or None when none belongs.
 
@@ -426,6 +474,8 @@ def _build_chart(tool_name: str, tool_result) -> schemas.ChartPayload | None:
     only where the question was itself a comparison -- and it holds
     exactly the servers the user asked for (`shown`), no more, no fewer.
     """
+    if tool_name == "get_servers_overview" and isinstance(tool_result, dict):
+        return _build_overview_chart(tool_result)
     if tool_name != "get_server_ranking" or not isinstance(tool_result, dict):
         return None
 
@@ -478,6 +528,16 @@ _P2_TOOLS = frozenset(
 )
 
 
+def _audit_target(call_args: dict) -> str:
+    """What a P2 call acted on, for the audit line: a server, a list, all, or an event."""
+    if call_args.get("all_servers"):
+        return "ALL_SERVERS"
+    ids = call_args.get("server_ids")
+    if ids:
+        return ",".join(ids)
+    return call_args.get("server_id") or call_args.get("event_id") or "-"
+
+
 async def _require_admin(request, tool_name: str) -> None:
     """Refuse a P2 tool unless this request carries an admin credential.
 
@@ -522,6 +582,16 @@ async def _require_admin(request, tool_name: str) -> None:
 async def fleet_overview():
     """Fleet-wide totals: servers, online/offline, players, average ping."""
     return await tools.get_fleet_overview(_get_db_pool())
+
+
+@router.get("/api/v1/agent/tools/servers-overview")
+async def servers_overview():
+    """Totals plus a status chart of every server (the voice agent draws it)."""
+    result = await tools.get_servers_overview(_get_db_pool())
+    chart = _build_chart("get_servers_overview", result)
+    # The rows exist to draw the chart; the model only needs the counts.
+    counts = {k: v for k, v in result.items() if k != "servers"}
+    return {**counts, "chart": chart.model_dump() if chart else None}
 
 
 @router.get("/api/v1/agent/tools/server-ranking")
@@ -632,7 +702,7 @@ async def agent_ask(body: schemas.AskRequest, request: Request):
                 logger.info(
                     "[AUDIT] Action: %s | Target: %s | Result: %s | Source: agent",
                     tool_name.upper(),
-                    call_args.get("server_id") or call_args.get("event_id") or "-",
+                    _audit_target(call_args),
                     jsonable_encoder(tool_result),
                 )
         except HTTPException:
@@ -652,7 +722,12 @@ async def agent_ask(body: schemas.AskRequest, request: Request):
         #
         # No tools are offered on this turn: the data is already in hand and
         # a second tool request would just be discarded.
-        tool_payload = json.dumps(jsonable_encoder(tool_result), ensure_ascii=False)
+        model_view = tool_result
+        if tool_name == "get_servers_overview":
+            # The chart carries the per-server rows; the model gets the counts
+            # only, so it has nothing to recite.
+            model_view = {k: v for k, v in tool_result.items() if k != "servers"}
+        tool_payload = json.dumps(jsonable_encoder(model_view), ensure_ascii=False)
         final_response = await _generate(
             contents=[
                 genai_types.Content(

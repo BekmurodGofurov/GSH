@@ -1,6 +1,6 @@
 import React from 'react';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, act } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
 // The panel pulls in the LiveKit components, which open a real WebSocket
@@ -9,7 +9,11 @@ import userEvent from '@testing-library/user-event';
 // the one shared conversation, not about LiveKit's internals.
 vi.mock('@livekit/components-styles', () => ({}));
 vi.mock('@livekit/components-react', () => ({
-  LiveKitRoom: ({ children }) => <div data-testid="livekit-room">{children}</div>,
+  LiveKitRoom: ({ children, options }) => (
+    <div data-testid="livekit-room" data-stop-mic-on-mute={String(options?.publishDefaults?.stopMicTrackOnMute)}>
+      {children}
+    </div>
+  ),
   RoomAudioRenderer: () => null,
   // Stood up the way the real one renders: a plain <button> with the
   // caller's props spread onto it and no type of its own. Inside a <form>
@@ -20,7 +24,10 @@ vi.mock('@livekit/components-react', () => ({
   useVoiceAssistant: () => ({ state: 'listening', audioTrack: null, error: null }),
   useConnectionState: () => 'connected',
   useLocalParticipant: () => ({ localParticipant: null, isMicrophoneEnabled: true }),
-  useDataChannel: () => ({}),
+  useDataChannel: (cb) => {
+    globalThis.__dataChannelHandler = cb;
+    return {};
+  },
   useRoomContext: () => null,
 }));
 vi.mock('livekit-client', () => ({ ConnectionState: { Connected: 'connected' } }));
@@ -142,6 +149,30 @@ describe('AskPanel', () => {
     expect(screen.getByText(/★ Server 1/)).toBeInTheDocument();
   });
 
+  it('draws every server in an overview chart, offline ones marked', async () => {
+    const rows = [
+      ...Array.from({ length: 21 }, (_, i) => ({ label: `S${i + 1}`, value: 20 + i, status: 'ONLINE' })),
+      { label: 'Down A', value: 0, status: 'OFFLINE', note: 'offline' },
+      { label: 'Down B', value: 0, status: 'OFFLINE', note: 'offline' },
+    ];
+    api.askAgent.mockResolvedValue({
+      data: {
+        answer: 'There are 23 servers: 21 online and 2 offline.',
+        tool_used: 'get_servers_overview',
+        chart: { chartType: 'bar', title: 'All 23 servers · 21 online · 2 offline', order: 'overview', unit: 'ms', rows },
+      },
+      error: null,
+    });
+    const user = userEvent.setup();
+    renderPanel();
+
+    await user.type(screen.getByPlaceholderText(/Ask about servers/i), 'show me all servers{Enter}');
+
+    await screen.findByText(/21 online and 2 offline/);
+    expect(document.body.querySelectorAll('svg[role="img"] rect')).toHaveLength(23);
+    expect(screen.getAllByText('OFFLINE')).toHaveLength(2);
+  });
+
   it('marks a worst-servers chart as such', async () => {
     api.askAgent.mockResolvedValue({
       data: {
@@ -202,6 +233,44 @@ describe('AskPanel', () => {
     await screen.findByTestId('livekit-room');
     expect(screen.getByText(/All 23 servers are online/)).toBeInTheDocument();
     expect(screen.getByPlaceholderText(/Ask about servers/i)).toBeInTheDocument();
+  });
+
+  it('lets go of the microphone when it is muted, not just silences it', async () => {
+    api.getLivekitToken.mockResolvedValue({ data: { token: 't', url: 'wss://x' }, error: null });
+    const user = userEvent.setup();
+    renderPanel();
+
+    await user.click(screen.getByLabelText(/Start voice session/i));
+
+    const room = await screen.findByTestId('livekit-room');
+    expect(room).toHaveAttribute('data-stop-mic-on-mute', 'true');
+  });
+
+  it('hangs up when the assistant is told to stop', async () => {
+    api.getLivekitToken.mockResolvedValue({ data: { token: 't', url: 'wss://x' }, error: null });
+    const user = userEvent.setup();
+    renderPanel();
+
+    await user.click(screen.getByLabelText(/Start voice session/i));
+    await screen.findByTestId('livekit-room');
+
+    act(() => {
+      globalThis.__dataChannelHandler({ payload: new TextEncoder().encode(JSON.stringify({ type: 'stop' })) });
+    });
+
+    await waitFor(() => expect(screen.queryByTestId('livekit-room')).not.toBeInTheDocument());
+  });
+
+  it('has an End button that closes the voice session', async () => {
+    api.getLivekitToken.mockResolvedValue({ data: { token: 't', url: 'wss://x' }, error: null });
+    const user = userEvent.setup();
+    renderPanel();
+
+    await user.click(screen.getByLabelText(/Start voice session/i));
+    await screen.findByTestId('livekit-room');
+    await user.click(screen.getByLabelText(/End voice session/i));
+
+    expect(screen.queryByTestId('livekit-room')).not.toBeInTheDocument();
   });
 
   it('does not send a half-typed question when audio is enabled', async () => {

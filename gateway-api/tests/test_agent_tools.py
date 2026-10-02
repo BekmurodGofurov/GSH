@@ -268,6 +268,64 @@ async def test_acknowledge_event_db_failure():
 
 
 # ══════════════════════════════════════════════════════
+# get_servers_overview: "show me all servers"
+# ══════════════════════════════════════════════════════
+
+def _srv(i, status="ONLINE", ping=30.0):
+    return {"server_id": f"10.0.0.{i}:27015", "server_name": f"S{i}", "status": status,
+            "ping_ms": ping if status == "ONLINE" else None}
+
+
+@pytest.mark.asyncio
+async def test_servers_overview_counts_online_and_offline():
+    pool, _ = make_pool(fetch_result=[_srv(1), _srv(2), _srv(3, "OFFLINE")])
+
+    result = await tools.get_servers_overview(pool)
+
+    assert (result["total_servers"], result["online_servers"], result["offline_servers"]) == (3, 2, 1)
+
+
+@pytest.mark.asyncio
+async def test_servers_overview_db_failure():
+    pool, _ = make_pool(error=RuntimeError("db down"))
+
+    with pytest.raises(RuntimeError):
+        await tools.get_servers_overview(pool)
+
+
+def test_overview_chart_has_every_server_with_offline_ones_marked():
+    from app.agent import router as agent_router
+
+    servers = [_srv(i, ping=10.0 * i) for i in range(1, 22)] + [_srv(22, "OFFLINE"), _srv(23, "OFFLINE")]
+    result = {"total_servers": 23, "online_servers": 21, "offline_servers": 2, "servers": servers}
+
+    chart = agent_router._build_chart("get_servers_overview", result)
+
+    assert len(chart.rows) == 23          # all of them, never a slice
+    assert chart.order == "overview"
+    assert "23" in chart.title and "21 online" in chart.title and "2 offline" in chart.title
+    assert [r.status for r in chart.rows].count("OFFLINE") == 2
+    # Offline servers sit at the end.
+    assert [r.status for r in chart.rows[-2:]] == ["OFFLINE", "OFFLINE"]
+
+
+def test_overview_chart_is_empty_without_servers():
+    from app.agent import router as agent_router
+    assert agent_router._build_chart("get_servers_overview", {"servers": []}) is None
+
+
+@pytest.mark.asyncio
+async def test_servers_overview_endpoint_sends_counts_and_chart(client, db):
+    db._fetch_result = [_srv(1), _srv(2, "OFFLINE")]
+
+    body = (await client.get("/api/v1/agent/tools/servers-overview")).json()
+
+    assert body["total_servers"] == 2 and body["offline_servers"] == 1
+    assert "servers" not in body              # the model gets counts, not a list to recite
+    assert len(body["chart"]["rows"]) == 2
+
+
+# ══════════════════════════════════════════════════════
 # get_muted_servers
 # ══════════════════════════════════════════════════════
 
@@ -1272,6 +1330,32 @@ async def test_executed_p2_action_writes_an_audit_line(client, db, admin_headers
     assert "Action: ACKNOWLEDGE_EVENT" in line
     assert "Target: 42" in line
     assert "Source: agent" in line
+
+
+@pytest.mark.asyncio
+async def test_bulk_unmute_audit_line_names_every_server(client, db, admin_headers, caplog):
+    """Unmuting several servers must not be logged as Target: -."""
+    import logging
+
+    db._fetch_result = [{"server_id": "a:1"}, {"server_id": "b:1"}]
+    with caplog.at_level(logging.INFO, logger="gsh.gateway.agent"):
+        with patch("app.agent.router._client") as mock_client:
+            mock_client.models.generate_content.side_effect = _model_calls(
+                "unmute_server_alerts", {"server_ids": ["a:1", "b:1"]}, answer="Done."
+            )
+            response = await client.post(
+                "/api/v1/agent/ask", json={"question": "Unmute those two."}, headers=admin_headers
+            )
+
+    assert response.status_code == 200
+    line = [r.getMessage() for r in caplog.records if "[AUDIT]" in r.getMessage()][0]
+    assert "Action: UNMUTE_SERVER_ALERTS" in line and "Target: a:1,b:1" in line
+
+
+def test_audit_target_for_unmute_all():
+    from app.agent import router as agent_router
+    assert agent_router._audit_target({"all_servers": True}) == "ALL_SERVERS"
+    assert agent_router._audit_target({"event_id": 7}) == 7
 
 
 @pytest.mark.asyncio

@@ -30,6 +30,10 @@ class FakeRoom:
         self.published.append(json.loads(payload.decode()))
 
     @property
+    def published_stop(self):
+        return any(p.get("type") == "stop" for p in self.published)
+
+    @property
     def charts(self):
         return [p for p in self.published if p.get("type") == "chart"]
 

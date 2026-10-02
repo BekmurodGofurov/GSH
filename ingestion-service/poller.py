@@ -1,6 +1,8 @@
 import os
 import sys
 import time
+import socket
+import ipaddress
 import asyncio
 import logging
 from pathlib import Path
@@ -145,6 +147,16 @@ async def probe_address(address: str, timeout: float = 3.0):
     the polling loop.
     """
     ip, port_str = address.rsplit(":", 1)
+    # A hostname can resolve to an internal address; check where it really
+    # points before sending anything.
+    try:
+        resolved = await asyncio.get_running_loop().getaddrinfo(ip, int(port_str), type=socket.SOCK_DGRAM)
+    except Exception:
+        return {"address": address, "reachable": False}
+    for *_, sockaddr in resolved:
+        target = ipaddress.ip_address(sockaddr[0])
+        if target.is_loopback or target.is_unspecified or target.is_link_local or target.is_multicast:
+            return {"address": address, "reachable": False}
     try:
         _t0 = time.perf_counter()
         info = await a2s.ainfo((ip, int(port_str)), timeout=timeout)

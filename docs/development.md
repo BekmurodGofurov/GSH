@@ -115,7 +115,7 @@ uses Vitest with tests under `client/src/__tests__/`.
 
 [`.github/workflows/ci.yml`](../.github/workflows/ci.yml) runs every
 service's suite in a matrix (each on the Python version its Dockerfile
-pins — 3.11 everywhere except `alerting-service` on 3.12), plus the
+pins — 3.11 everywhere except `alerting-service` and `voice-agent` on 3.12), plus the
 client's tests and a production build. The `CI passed` job aggregates
 them and is the check branch protection requires.
 

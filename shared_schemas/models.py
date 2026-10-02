@@ -61,6 +61,11 @@ class ProbeRequest(BaseModel):
             ip = ipaddress.ip_address(host)
         except ValueError:
             ip = None  # a hostname, not a literal IP
+            # A bare name ("redis", "timescaledb", "localhost") resolves on
+            # the container network, not the internet: it would let the probe
+            # poke at the stack's own services.
+            if "." not in host:
+                raise ValueError("Use a public IP address or a full hostname (for example play.example.com)")
         if ip is not None and (ip.is_loopback or ip.is_unspecified or ip.is_link_local or ip.is_multicast):
             raise ValueError("That address cannot be probed")
         return f"{host}:{int(port_text)}"

@@ -1,6 +1,6 @@
 # Microservices and Data Workflow
 
-GSH is split into six services, each in its own directory and Docker
+GSH is split into services, each in its own directory and Docker
 image, communicating over HTTP and (in one place) Redis Streams. This
 doc describes what each service actually does and how data moves
 between them, traced from the code rather than assumed from the stack
@@ -10,12 +10,13 @@ list.
 
 | Service | Role | Talks to |
 |---|---|---|
-| `ingestion-service` | Polls game servers over UDP (Valve A2S protocol), writes metrics/status to TimescaleDB | TimescaleDB, Redis (best-effort) |
+| `ingestion-service` | Polls game servers over UDP (Valve A2S protocol), writes metrics/status to TimescaleDB; also answers on-demand `poll` and one-off `probe` requests (probe stores nothing) | TimescaleDB, Redis (best-effort), game servers |
 | `anomaly-detection-ml` | Scores incoming metrics for anomalies (rolling z-score) | Called over HTTP by `anomaly-bridge` |
 | `root-cause-ml` | Classifies a likely root cause for a flagged anomaly (ML model + rule-based fallback) | Called over HTTP by `anomaly-bridge` |
 | `anomaly-bridge` | A second process built from the `anomaly-detection-ml` image (`bridge.py`); polls TimescaleDB, orchestrates the anomaly → root-cause pipeline, writes labeled incidents back to TimescaleDB | TimescaleDB, `anomaly-detection-ml`, `root-cause-ml` |
-| `gateway-api` | Read/aggregation API + admin CRUD + live WebSocket feed for the dashboard | TimescaleDB only |
-| `alerting-service` | Telegram bot: scheduled daily reports + near-real-time incident alerts | TimescaleDB, Telegram API |
+| `gateway-api` | Read/aggregation API + admin CRUD + alert mute controls + live WebSocket feed + the typed AI agent (`app/agent/`) and the `/api/v1/agent/tools/*` endpoints | TimescaleDB, `ingestion-service` (poll, probe), Gemini API, LiveKit (token signing) |
+| `voice-agent` | LiveKit worker running Gemini's realtime model; reads every number through the gateway's agent-tool endpoints, never the database | LiveKit, Gemini API, `gateway-api`, Telegram (reports) |
+| `alerting-service` | Telegram bot: scheduled daily reports + near-real-time incident alerts; skips acknowledged incidents and muted servers (`alert_silences`) | TimescaleDB, Telegram API |
 | `client` | React/Vite dashboard | `gateway-api` (HTTP + WebSocket) |
 
 ## Real data flow
@@ -54,11 +55,27 @@ ingestion-service --(A2S poll, every 3s)--> game servers
    score, reasons, and root-cause diagnosis.
 4. `gateway-api` reads `monitored_servers`, `server_metrics`,
    `server_events`, and `daily_reports` to serve the REST API and the
-   `/ws/live` WebSocket feed the dashboard uses.
+   `/ws/live` WebSocket feed the dashboard uses. Server rows carry
+   `muted_until` from `alert_silences`, which is how the dashboard shows
+   mute icons. For on-demand work it calls `ingestion-service` over HTTP
+   (live poll, address probe).
 5. `alerting-service` runs independently: every 15 seconds it checks
    `server_events` for new unalerted rows and sends a Telegram alert;
    once a day it builds and sends a full report, and caches it in
    `daily_reports`.
+
+## The AI agent path
+
+```
+Typed:  client ──POST /agent/ask──► gateway-api ──► Gemini ──► whitelisted tool ──► TimescaleDB
+Spoken: client ◄──LiveKit──► voice-agent ──► Gemini Live
+                                   └──GET /agent/tools/*──► gateway-api ──► (same tool functions)
+```
+
+The tool functions live once, in `gateway-api/app/agent/tools.py`. The voice
+worker reaches them over HTTP, so a typed and a spoken question get the same
+numbers and the same chart (built in `router._build_chart`). Write tools (P2)
+are gated on an admin credential on both paths. See [agents.md](agents.md).
 
 ## Known discrepancy: Redis Streams are not actually part of the pipeline yet
 

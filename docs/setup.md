@@ -6,10 +6,12 @@
   `docker-compose up`).
 - A Telegram bot token and chat/group ID — `alerting-service` will not
   start without them (from [@BotFather](https://t.me/BotFather)).
+- A Gemini API key (`AGENT_LLM_API_KEY`) — the gateway will not start
+  without it — and a LiveKit project (`LIVEKIT_*`) for the voice agent.
 - Only needed if running services **outside** Docker: Node.js 18+ for
   the client, Python 3.11 for `gateway-api` / `ingestion-service` /
-  `anomaly-detection-ml` / `root-cause-ml`, Python 3.12 for
-  `alerting-service` (the Dockerfiles pin different versions per
+  `anomaly-detection-ml` / `root-cause-ml` (the gateway's code needs ≥ 3.10),
+  Python 3.12 for `alerting-service` and `voice-agent` (the Dockerfiles pin different versions per
   service — worth knowing if you hit version-specific bugs).
 
 ## 1. Configure environment
@@ -33,6 +35,10 @@ start without them (`${VAR:?VAR is required in .env}`):
 | `CLIENT_PORT` | yes | default `3000` |
 | `ADMIN_USERNAME` / `ADMIN_PASSWORD` | yes | gateway-api admin login |
 | `TELEGRAM_BOT_TOKEN` / `TELEGRAM_CHAT_ID` | yes | alerting-service |
+| `AGENT_LLM_API_KEY` | yes | Gemini key for the typed agent and the voice agent |
+| `LIVEKIT_URL` / `LIVEKIT_API_KEY` / `LIVEKIT_API_SECRET` | yes | voice chat (compose requires them for `voice-agent`) |
+| `ADMIN_API_KEY` | no | second admin auth path; lets the voice worker act for an admin |
+| `AGENT_LLM_MODEL`, `AGENT_VOICE_MODEL`, `AGENT_VOICE`, `VOICE_AGENT_NAME` | no | model/voice overrides; see `.env.example` |
 | `HOST` | no | default `localhost`; see [deployment SKILL.md](../skills/deployment/SKILL.md) for the `HOST`/`DOMAIN` fallback chain |
 | `FRONTEND_URL`, `VITE_API_URL`, `VITE_WS_URL` | no | auto-derived from `HOST` + ports if unset |
 | `VITE_ADMIN_PATH` | no | default `/secret-admin` |
@@ -67,6 +73,7 @@ Startup order (handled by `depends_on` + healthchecks in
    pinned to public DNS (`8.8.8.8`/`1.1.1.1`) so it can reach the
    Telegram API.
 7. `client` starts once `gateway-api` has started.
+8. `voice-agent` starts once `gateway-api` has started and connects out to LiveKit.
 
 ## 3. Verify
 
@@ -100,9 +107,25 @@ npm install
 npm run dev   # requires client/.env with VITE_API_URL and CLIENT_PORT set
 ```
 
-## No test suite yet
+## Tests
 
-There is currently no automated test setup in any service. See
-[skills/testing/SKILL.md](../skills/testing/SKILL.md) for what to do
-when adding tests to a service that doesn't have a framework wired up
-yet.
+Every service has a suite; the client uses Vitest:
+
+```bash
+pip install -r <service>/requirements.txt -r requirements-dev.txt
+cd <service> && pytest -v
+cd client && npm ci && npm test
+```
+
+See [development.md](development.md) and
+[skills/testing/SKILL.md](../skills/testing/SKILL.md) for the conventions
+(services raise at import on missing env vars, so each `conftest.py` seeds
+the environment first).
+
+## First use
+
+Nothing is monitored until a server is registered: open the admin console
+(`VITE_ADMIN_PATH`, default `/secret-admin`), sign in with
+`ADMIN_USERNAME` / `ADMIN_PASSWORD`, and add servers as `IP:Port`. The
+console's **Check a Server Address** box can test an address first without
+registering it.

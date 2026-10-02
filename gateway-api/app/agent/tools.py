@@ -248,6 +248,26 @@ def _compare(best: dict, runner_up: dict, hours: int) -> str:
     )
 
 
+async def get_servers_overview(db_pool) -> dict:
+    """Every monitored server's status in one go: the totals, and a row each.
+
+    Backs "show me all servers" / "fleet overview". The answer is the counts
+    (total, online, offline) and a status chart of the whole fleet; the
+    per-server rows ride along for the chart and for follow-up questions,
+    not to be read out one by one.
+    """
+    async with db_pool.acquire() as conn:
+        rows = await conn.fetch(LATEST_SERVERS_QUERY)
+    servers = [dict(r) for r in rows]
+    online = [s for s in servers if (s.get("status") or "").upper() == "ONLINE"]
+    return {
+        "total_servers": len(servers),
+        "online_servers": len(online),
+        "offline_servers": len(servers) - len(online),
+        "servers": servers,
+    }
+
+
 async def get_muted_servers(db_pool) -> dict:
     """List the servers whose alerts are muted right now, and until when."""
     async with db_pool.acquire() as conn:

@@ -30,7 +30,9 @@ class ChartPayload(BaseModel):
     """
     chartType: Literal["bar"] = "bar"
     title: str
-    order: Literal["best", "worst"] = "best"
+    # "overview" is the whole-fleet status chart: bars coloured by status
+    # rather than a best/worst ranking.
+    order: Literal["best", "worst", "overview"] = "best"
     unit: str = "ms"
     rows: list[ChartRow]
 
